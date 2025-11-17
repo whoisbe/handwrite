@@ -275,14 +275,21 @@ export default function App() {
 
         {/* Text Input */}
         <div className="space-y-2">
-          <Label htmlFor="text-input">Text</Label>
+          <div className="flex justify-between items-center">
+            <Label htmlFor="text-input">Text</Label>
+            <span className="text-xs text-gray-500">{inputText.length}/6</span>
+          </div>
           <Input
             id="text-input"
             type="text"
             value={inputText}
-            onChange={(e) => handleTextChange(e.target.value)}
+            onChange={(e) => {
+              const newValue = e.target.value.slice(0, 6); // Limit to 6 characters
+              handleTextChange(newValue);
+            }}
             placeholder="Enter text to animate"
             className="w-full"
+            maxLength={6}
           />
         </div>
       </div>
@@ -355,13 +362,15 @@ export default function App() {
           {/* Animation Display */}
           <div className="absolute inset-0">
             <AnimationPlayerCanvas
-              text={currentChar}
+              text={inputText}
               fontFamily={selectedFont}
               strokes={strokes}
+              characterStrokes={characterStrokes}
               isPlaying={isPlaying}
               onPlaybackComplete={handlePlaybackComplete}
               strokeDuration={800}
               strokeGap={150}
+              characterGap={200}
               easing="easeInOut"
               width={800}
               height={400}
