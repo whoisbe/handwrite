@@ -18,6 +18,7 @@ A React + TypeScript app for creating handwriting-style text animations. Users t
 - characterStrokes: Record<number, Stroke[]>  // Strokes per character index
 - currentStroke: Point[]  // Dots being placed for current stroke
 - isPlaying: boolean  // Animation playback state
+- speedMultiplier: number // Animation speed control (1x - 4x)
 - savedData: any  // Exported JSON for debugging
 ```
 
@@ -136,6 +137,7 @@ A React + TypeScript app for creating handwriting-style text animations. Users t
 ✅ Coordinate scaling for accurate alignment
 ✅ JSON export with debug display
 ✅ Play/pause animation controls
+✅ Animation speed slider (1x-4x multiplier)
 
 ---
 
@@ -237,6 +239,39 @@ The animation player now animates the entire word (all characters) in sequence w
 - Text is rendered via canvas fillText, not vector outlines
 - No video export (only real-time preview)
 
+---
+
+## ✅ Completed Feature: Animation Speed Control
+
+### Implementation Summary
+Users can now control playback speed from **1x to 4x** using a Radix-based slider placed alongside the animation controls. The multiplier readout updates live (e.g., `2.5x`) so users immediately understand the selected tempo.
+
+### What Was Implemented
+1. **State & UI Wiring (`src/App.tsx`)**
+   - Added `speedMultiplier` state with a default of `1` plus a `<Slider>` control limited to `[1, 4]` in 0.5 increments.
+   - Display the numeric multiplier next to the slider for quick feedback.
+   - Passed the multiplier to `AnimationPlayerCanvas` so rendering logic remains centralized.
+
+2. **Animation Timing (`src/components/AnimationPlayerCanvas.tsx`)**
+   - Stroke duration, stroke gap, and character gap values now divide by the multiplier, keeping relative pacing while accelerating or decelerating overall playback.
+   - Changing the multiplier resets the animation loop refs to avoid drift mid-playback.
+
+3. **Slider Component & Styles**
+   - `src/components/ui/slider.tsx` gained deterministic class hooks (`slider-track`, `slider-range`, `slider-thumb`) on each Radix primitive.
+   - `src/index.css` defines fallback styles for those classes (track height, thumb size, colors tied to existing CSS variables) so the control stays visible even if Tailwind purges specific utility classes in production builds.
+
+### Verification
+- Dev server + headless browser check confirms the slider renders with an 8 px track and the thumb moves/responds to drag.
+- `npm run build` succeeds post-change.
+- Manual smoke test: moving the slider immediately affects playback speed and the multiplier label.
+
+### Notes / Edge Cases
+- Multiplier clamps between 1 and 4; fractional values (step `0.5`) are supported.
+- CSS fallbacks prevent invisible controls when PurgeCSS removes unused Tailwind utilities.
+- Animation restarts whenever the multiplier changes to apply the new timings consistently.
+
+---
+
 ### Future Enhancements (Post-MVP)
 - Vector font outline extraction
 - Skeleton-based auto-path generation
@@ -245,3 +280,4 @@ The animation player now animates the entire word (all characters) in sequence w
 - Lowercase letters
 - Full alphabet support
 - Stroke library/sharing
+

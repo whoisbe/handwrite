@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Button } from "./components/ui/button";
+import { Slider } from "./components/ui/slider";
 import StrokeEditorCanvas from "./components/StrokeEditorCanvas";
 import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import { Stroke } from "./types/stroke";
@@ -93,6 +94,9 @@ export default function App() {
   const [characterStrokes, setCharacterStrokes] = useState<Record<number, Stroke[]>>({});
   const [currentStroke, setCurrentStroke] = useState<Point[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
+  
+  // Animation speed control (1x to 4x)
+  const [speedMultiplier, setSpeedMultiplier] = useState(1);
   
   // Saved data for debug display
   const [savedData, setSavedData] = useState<any>(null);
@@ -292,6 +296,22 @@ export default function App() {
             maxLength={6}
           />
         </div>
+
+        {/* Speed Control */}
+        <div className="space-y-2">
+            <Label>Animation Speed</Label>
+            <div className="flex items-center gap-3">
+              <Slider
+                value={[speedMultiplier]}
+                onValueChange={([value]) => setSpeedMultiplier(value)}
+                min={1}
+                max={4}
+                step={0.5}
+                className="w-full"
+              />
+              <span className="text-sm font-semibold text-gray-900 w-10">{speedMultiplier.toFixed(1)}x</span>
+            </div>
+        </div>
       </div>
 
       {/* Main Content Area */}
@@ -371,6 +391,7 @@ export default function App() {
               strokeDuration={800}
               strokeGap={150}
               characterGap={200}
+              speedMultiplier={speedMultiplier}
               easing="easeInOut"
               width={800}
               height={400}

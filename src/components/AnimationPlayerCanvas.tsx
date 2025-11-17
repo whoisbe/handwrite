@@ -14,6 +14,7 @@ interface AnimationPlayerCanvasProps {
   strokeDuration?: number; // Duration per stroke in ms
   strokeGap?: number; // Gap between strokes in ms
   characterGap?: number; // Gap between characters in ms
+  speedMultiplier?: number; // Speed multiplier (1x to 4x)
   easing?: EasingType;
   width?: number;
   height?: number;
@@ -29,6 +30,7 @@ export default function AnimationPlayerCanvas({
   strokeDuration = 800,
   strokeGap = 150,
   characterGap = 200,
+  speedMultiplier = 1,
   easing = 'easeInOut',
   width = 800,
   height = 400
@@ -84,7 +86,7 @@ export default function AnimationPlayerCanvas({
       : strokes.map(s => ({ stroke: s, charIndex: 0, xOffset: 0, yOffset: 0 }));
   }, [text, fontFamily, strokes, characterStrokes, width, height]);
 
-  // Calculate total animation duration
+  // Calculate total animation duration with speed multiplier
   // Add character gaps between different characters
   let totalDuration = 0;
   let lastCharIndex = -1;
@@ -92,24 +94,24 @@ export default function AnimationPlayerCanvas({
   timelineStrokes.current.forEach((item, index) => {
     // Add character gap if this is a new character (but not the first)
     if (item.charIndex !== lastCharIndex && lastCharIndex !== -1) {
-      totalDuration += characterGap;
+      totalDuration += characterGap / speedMultiplier;
     }
     lastCharIndex = item.charIndex;
     
     // Add stroke duration
-    totalDuration += strokeDuration;
+    totalDuration += strokeDuration / speedMultiplier;
     
     // Add stroke gap if not the last stroke
     if (index < timelineStrokes.current.length - 1) {
-      totalDuration += strokeGap;
+      totalDuration += strokeGap / speedMultiplier;
     }
   });
 
-  // Reset animation when strokes change
+  // Reset animation when strokes or speed changes
   useEffect(() => {
     setCurrentTime(0);
     startTimeRef.current = null;
-  }, [strokes, characterStrokes]);
+  }, [strokes, characterStrokes, speedMultiplier]);
 
   // Animation loop
   useEffect(() => {
@@ -195,24 +197,23 @@ export default function AnimationPlayerCanvas({
     // Draw reveal mask based on current time with proper timeline
     const easingFn = easings[easing];
 
-    // Calculate timing for each stroke including character gaps
+    // Calculate timing for each stroke including character gaps with speed multiplier
     let accumulatedTime = 0;
     let previousCharIndex = -1;
 
-    timelineStrokes.current.forEach((strokeWithOffset, strokeIndex) => {
-      const { stroke, xOffset, yOffset, charIndex } = strokeWithOffset;
-      
-      // Add character gap if switching to a new character
+    timelineStrokes.current.forEach((item) => {
+      const { stroke, charIndex, xOffset, yOffset } = item;
+
+      // Add character gap if switching to new character
       if (charIndex !== previousCharIndex && previousCharIndex !== -1) {
-        accumulatedTime += characterGap;
+        accumulatedTime += characterGap / speedMultiplier;
       }
       previousCharIndex = charIndex;
 
       const strokeStartTime = accumulatedTime;
-      const strokeEndTime = strokeStartTime + strokeDuration;
-
+      const strokeEndTime = strokeStartTime + strokeDuration / speedMultiplier;
       // Move to next stroke's start time for next iteration
-      accumulatedTime = strokeEndTime + strokeGap;
+      accumulatedTime = strokeEndTime + strokeGap / speedMultiplier;
 
       if (currentTime < strokeStartTime) {
         // Stroke hasn't started yet
@@ -226,7 +227,7 @@ export default function AnimationPlayerCanvas({
       } else {
         // Stroke is in progress
         const localTime = currentTime - strokeStartTime;
-        const t = localTime / strokeDuration;
+        const t = localTime / (strokeDuration / speedMultiplier);
         progress = easingFn(t);
       }
 
@@ -274,7 +275,7 @@ export default function AnimationPlayerCanvas({
     // Draw masked text to main canvas
     ctx.drawImage(offscreenCanvas, 0, 0);
 
-  }, [text, fontFamily, strokes, characterStrokes, currentTime, easing, strokeDuration, strokeGap, characterGap, width, height]);
+  }, [text, fontFamily, strokes, characterStrokes, currentTime, easing, strokeDuration, strokeGap, characterGap, speedMultiplier, width, height]);
 
   return (
     <canvas
