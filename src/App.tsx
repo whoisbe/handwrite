@@ -9,7 +9,7 @@ import StrokeEditorCanvas from "./components/StrokeEditorCanvas";
 import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import { Stroke } from "./types/stroke";
 import { Point, generateCatmullRomSpline, getCumulativeDistances } from "./utils/spline";
-import { loadStrokesForText, persistGlyphStrokes } from "./utils/persistence";
+import { fetchGlyphStrokes, saveGlyphStrokes } from "./lib/tracesRepository";
 
 // Canvas control button icons
 function UndoIcon() {
@@ -120,6 +120,44 @@ export default function App() {
     "Dancing Script"
   ];
 
+  const characterStrokesRef = useRef(characterStrokes);
+  useEffect(() => {
+    characterStrokesRef.current = characterStrokes;
+  }, [characterStrokes]);
+
+  const hydratePersistedStrokes = useCallback(async (text: string, fontName: string) => {
+    if (!text) {
+      setCharacterStrokes({});
+      return;
+    }
+
+    const chars = Array.from(text);
+    const results = await Promise.all(
+      chars.map(async (char, index) => {
+        if (characterStrokesRef.current[index]?.length) {
+          return null;
+        }
+        const persisted = await fetchGlyphStrokes(fontName, char);
+        return persisted?.length ? { index, strokes: persisted } : null;
+      })
+    );
+
+    setCharacterStrokes(prev => {
+      let mutated = false;
+      const next = { ...prev };
+      results.forEach(result => {
+        if (!result) {
+          return;
+        }
+        if (!next[result.index]?.length) {
+          next[result.index] = result.strokes;
+          mutated = true;
+        }
+      });
+      return mutated ? next : prev;
+    });
+  }, []);
+
   // Add dot to current stroke
   const handleAddDot = useCallback((point: Point) => {
     setCurrentStroke(prev => [...prev, point]);
@@ -200,15 +238,42 @@ export default function App() {
   }, [currentStroke.length, currentCharIndex, inputText.length, completeCurrentStroke]);
 
   // Check button - save all strokes
-  const handleCheck = useCallback(() => {
-    // Auto-save current stroke if any
+  const handleCheck = useCallback(async () => {
+    let workingStrokes = characterStrokes;
+
     if (currentStroke.length >= 2) {
-      completeCurrentStroke();
+      const flushedStroke = completeCurrentStroke();
+      if (flushedStroke) {
+        workingStrokes = {
+          ...characterStrokes,
+          [currentCharIndex]: [...(characterStrokes[currentCharIndex] || []), flushedStroke]
+        };
+      }
     }
 
-    // Build complete saved data
-    const allGlyphData = Object.entries(characterStrokes).map(([charIndex, charStrokes]) => ({
-      char: inputText[parseInt(charIndex)],
+    const glyphEntries = Object.entries(workingStrokes);
+    if (glyphEntries.length === 0) {
+      alert("No strokes to save yet.");
+      return;
+    }
+
+    try {
+      await Promise.all(
+        glyphEntries.map(async ([charIndex, charStrokes]) => {
+          const glyphChar = inputText[parseInt(charIndex, 10)];
+          if (glyphChar && charStrokes?.length) {
+            await saveGlyphStrokes(selectedFont, glyphChar, charStrokes);
+          }
+        })
+      );
+    } catch (error) {
+      console.error("Failed to save strokes", error);
+      alert("Unable to save strokes right now. Please try again.");
+      return;
+    }
+
+    const allGlyphData = glyphEntries.map(([charIndex, charStrokes]) => ({
+      char: inputText[parseInt(charIndex, 10)],
       fontFamily: selectedFont,
       strokes: charStrokes.map(s => ({
         id: s.id,
@@ -216,14 +281,6 @@ export default function App() {
         order: s.order
       }))
     }));
-
-    // Persist strokes for future sessions/font reuse
-    Object.entries(characterStrokes).forEach(([charIndex, charStrokes]) => {
-      const glyphChar = inputText[parseInt(charIndex, 10)];
-      if (glyphChar && charStrokes?.length) {
-        persistGlyphStrokes(selectedFont, glyphChar, charStrokes);
-      }
-    });
 
     const savedOutput = {
       text: inputText,
@@ -233,16 +290,14 @@ export default function App() {
 
     console.log("Saved strokes:", savedOutput);
     setSavedData(savedOutput);
-    
-    // Show success and clear
+
     alert(`Successfully saved strokes for "${inputText}"!`);
 
-    const persistedAfterSave = loadStrokesForText(inputText, selectedFont);
-    setCharacterStrokes(persistedAfterSave);
+    await hydratePersistedStrokes(inputText, selectedFont);
     setCurrentStroke([]);
     setCurrentCharIndex(0);
     setIsPlaying(false);
-  }, [currentStroke, characterStrokes, inputText, selectedFont, completeCurrentStroke]);
+  }, [characterStrokes, currentStroke, completeCurrentStroke, inputText, selectedFont, hydratePersistedStrokes, currentCharIndex]);
 
   // Toggle playback
   const handlePlay = useCallback(() => {
@@ -260,33 +315,32 @@ export default function App() {
 
   // Reset character index when text changes
   const handleTextChange = useCallback((rawText: string) => {
-    const upperText = rawText.toUpperCase();
+    const sanitizedText = rawText;
     const previousText = inputText;
-    setInputText(upperText);
+    setInputText(sanitizedText);
     setCurrentCharIndex(0);
     setCurrentStroke([]);
     setIsPlaying(false);
 
-    if (!upperText) {
+    if (!sanitizedText) {
       setCharacterStrokes({});
       return;
     }
 
-    setCharacterStrokes((prev) => {
-      const persisted = loadStrokesForText(upperText, selectedFont);
+    setCharacterStrokes(prev => {
       const next: Record<number, Stroke[]> = {};
-      for (let i = 0; i < upperText.length; i++) {
-        const nextChar = upperText[i];
+      for (let i = 0; i < sanitizedText.length; i++) {
         const prevChar = previousText[i];
+        const nextChar = sanitizedText[i];
         if (prev[i]?.length && prevChar === nextChar) {
           next[i] = prev[i];
-        } else if (persisted[i]?.length) {
-          next[i] = persisted[i];
         }
       }
       return next;
     });
-  }, [selectedFont, inputText]);
+
+    void hydratePersistedStrokes(sanitizedText, selectedFont);
+  }, [inputText, selectedFont, hydratePersistedStrokes]);
 
   useEffect(() => {
     const text = latestTextRef.current;
@@ -297,11 +351,11 @@ export default function App() {
       return;
     }
 
-    const persisted = loadStrokesForText(text, selectedFont);
-    setCharacterStrokes(persisted);
+    setCharacterStrokes({});
     setCurrentStroke([]);
     setCurrentCharIndex(0);
-  }, [selectedFont]);
+    void hydratePersistedStrokes(text, selectedFont);
+  }, [selectedFont, hydratePersistedStrokes]);
 
   return (
     <div className="bg-white min-h-screen p-6">
@@ -392,7 +446,7 @@ export default function App() {
             />
             <ControlButton 
               icon={<CheckIcon />} 
-              onClick={handleCheck} 
+              onClick={() => { void handleCheck(); }} 
               ariaLabel="Save all strokes"
             />
           </div>

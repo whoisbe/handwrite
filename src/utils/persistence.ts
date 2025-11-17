@@ -10,10 +10,6 @@ interface TraceStore {
 
 const isBrowser = typeof window !== "undefined";
 
-function normalizeChar(char: string): string {
-  return char?.toUpperCase() ?? "";
-}
-
 function readStore(): TraceStore {
   if (!isBrowser) {
     return {};
@@ -61,7 +57,7 @@ export function persistGlyphStrokes(font: string, character: string, strokes: St
     return;
   }
 
-  const charKey = normalizeChar(character);
+  const charKey = character;
   const store = readStore();
   const fontBucket = store[font] ?? {};
   fontBucket[charKey] = cloneStrokes(strokes);
@@ -82,7 +78,7 @@ export function loadStrokesForText(text: string, font: string): Record<number, S
 
   const hydrated: Record<number, Stroke[]> = {};
   Array.from(text).forEach((char, index) => {
-    const charKey = normalizeChar(char);
+    const charKey = char;
     const stored = fontBucket[charKey];
     if (stored?.length) {
       hydrated[index] = cloneStrokes(stored);
@@ -98,7 +94,7 @@ export function loadStrokesForGlyph(font: string, character: string): Stroke[] |
   }
 
   const store = readStore();
-  const charKey = normalizeChar(character);
+  const charKey = character;
   const stored = store[font]?.[charKey];
   if (!stored?.length) {
     return undefined;
