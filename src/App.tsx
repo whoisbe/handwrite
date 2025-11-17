@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import svgPaths from "./imports/svg-x7f6vq0myw";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Input } from "./components/ui/input";
@@ -9,6 +9,7 @@ import StrokeEditorCanvas from "./components/StrokeEditorCanvas";
 import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import { Stroke } from "./types/stroke";
 import { Point, generateCatmullRomSpline, getCumulativeDistances } from "./utils/spline";
+import { loadStrokesForText, persistGlyphStrokes } from "./utils/persistence";
 
 // Canvas control button icons
 function UndoIcon() {
@@ -100,6 +101,11 @@ export default function App() {
   
   // Saved data for debug display
   const [savedData, setSavedData] = useState<any>(null);
+
+  const latestTextRef = useRef(inputText);
+  useEffect(() => {
+    latestTextRef.current = inputText;
+  }, [inputText]);
   
   // Get strokes for current character
   const strokes = characterStrokes[currentCharIndex] || [];
@@ -211,6 +217,14 @@ export default function App() {
       }))
     }));
 
+    // Persist strokes for future sessions/font reuse
+    Object.entries(characterStrokes).forEach(([charIndex, charStrokes]) => {
+      const glyphChar = inputText[parseInt(charIndex, 10)];
+      if (glyphChar && charStrokes?.length) {
+        persistGlyphStrokes(selectedFont, glyphChar, charStrokes);
+      }
+    });
+
     const savedOutput = {
       text: inputText,
       fontFamily: selectedFont,
@@ -222,7 +236,9 @@ export default function App() {
     
     // Show success and clear
     alert(`Successfully saved strokes for "${inputText}"!`);
-    setCharacterStrokes({});
+
+    const persistedAfterSave = loadStrokesForText(inputText, selectedFont);
+    setCharacterStrokes(persistedAfterSave);
     setCurrentStroke([]);
     setCurrentCharIndex(0);
     setIsPlaying(false);
@@ -243,11 +259,49 @@ export default function App() {
   }, []);
 
   // Reset character index when text changes
-  const handleTextChange = useCallback((newText: string) => {
-    setInputText(newText);
+  const handleTextChange = useCallback((rawText: string) => {
+    const upperText = rawText.toUpperCase();
+    const previousText = inputText;
+    setInputText(upperText);
     setCurrentCharIndex(0);
     setCurrentStroke([]);
-  }, []);
+    setIsPlaying(false);
+
+    if (!upperText) {
+      setCharacterStrokes({});
+      return;
+    }
+
+    setCharacterStrokes((prev) => {
+      const persisted = loadStrokesForText(upperText, selectedFont);
+      const next: Record<number, Stroke[]> = {};
+      for (let i = 0; i < upperText.length; i++) {
+        const nextChar = upperText[i];
+        const prevChar = previousText[i];
+        if (prev[i]?.length && prevChar === nextChar) {
+          next[i] = prev[i];
+        } else if (persisted[i]?.length) {
+          next[i] = persisted[i];
+        }
+      }
+      return next;
+    });
+  }, [selectedFont, inputText]);
+
+  useEffect(() => {
+    const text = latestTextRef.current;
+    if (!text) {
+      setCharacterStrokes({});
+      setCurrentStroke([]);
+      setCurrentCharIndex(0);
+      return;
+    }
+
+    const persisted = loadStrokesForText(text, selectedFont);
+    setCharacterStrokes(persisted);
+    setCurrentStroke([]);
+    setCurrentCharIndex(0);
+  }, [selectedFont]);
 
   return (
     <div className="bg-white min-h-screen p-6">
