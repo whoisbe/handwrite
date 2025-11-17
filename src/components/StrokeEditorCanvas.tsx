@@ -223,7 +223,7 @@ export default function StrokeEditorCanvas({
       onDoubleClick={handleDoubleClick}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      className={hoveredDotIndex !== null ? "cursor-pointer" : "cursor-none"}
+      className={hoveredDotIndex !== null ? "cursor-pointer" : "cursor-crosshair"}
       style={{ display: 'block', width: '100%', height: '100%' }}
     />
   );
