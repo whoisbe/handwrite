@@ -272,6 +272,53 @@ Users can now control playback speed from **1x to 4x** using a Radix-based slide
 
 ---
 
+## Next Feature To Implement: Persistent Trace Data Platform
+
+### Goal
+Persist stroke traces (dots, splines, timing metadata) in a scalable store so glyph definitions survive sessions, can be shared across fonts/characters, and support future crowdsourcing/ML pipelines.
+
+### Proposed Architecture
+1. **Managed Postgres (Supabase/Neon)**
+   - Relational tables for `fonts`, `glyphs`, `stroke_sets`, `strokes`, `animation_profiles`, `contributions`, `reviews`.
+   - JSONB columns inside `strokes` or `stroke_sets` capture high-dimensional arrays (dots, spline samples, cumulative distances) without over-normalizing.
+   - Row-Level Security + auth primitives handle contributor roles (viewer, contributor, moderator).
+
+2. **Object Storage (S3-compatible)**
+   - Store bulky assets (TTF/OTF files, glyph previews, rendered videos) with deterministic keys (`fonts/{fontId}/glyphs/{glyphId}/preview.png`).
+   - Postgres keeps metadata pointers + hash/version for cache invalidation.
+
+3. **API Layer**
+   - REST/GraphQL endpoints (Supabase auto-generated or custom Node service) for CRUD: fetch latest approved stroke set, submit new contribution, review/approve, fetch animation profiles.
+   - Edge Functions/Serverless validators run geometric sanity checks before promotion.
+
+4. **Versioning & Workflow**
+   - `stroke_sets` table tracks `version`, `status (draft|approved|deprecated)`, `parent_version_id` for lineage.
+   - Moderation dashboard flips `glyphs.current_stroke_set_id` to a vetted version; history remains for rollback and ML training.
+   - `contributions` + `reviews` tables capture crowdsourced submissions, reviewer decisions, and contributor reputation.
+
+5. **Client Integration**
+   - Frontend fetches stroke sets via API and caches them in IndexedDB with ETags for offline editing.
+   - Local edits queue when offline and sync via POST once back online.
+
+6. **Scaling Considerations**
+   - Partition/cluster Postgres by `font_id` or Unicode blocks.
+   - GIN indexes on JSONB for queries (stroke count, updated after date).
+   - CDN cache for preview thumbnails to handle many fonts/characters.
+   - Telemetry on submission volume + glyph coverage to guide crowdsourcing incentives.
+
+### Immediate Tasks
+- Design & migrate the core schema in Postgres (fonts, glyphs, stroke_sets, strokes, animation_profiles, contributions, reviews).
+- Stand up storage bucket + service account for font assets/output previews.
+- Build minimal API endpoints for: fetch glyph strokes, submit contribution, approve/deny contribution.
+- Wire the frontend to load/save stroke data through the API (replace in-memory `characterStrokes`).
+- Add basic auth & contributor identity to gate submissions.
+
+### Longer-Term Considerations
+- Moderation UI + reputation weights for crowdsourced quality control.
+- Batch export pipeline pulling from Postgres to render/share assets.
+- ML ingestion jobs that read historical stroke versions for heuristic suggestions.
+- Sharding strategy once font/glyph volume grows beyond a single Postgres instance.
+
 ### Future Enhancements (Post-MVP)
 - Vector font outline extraction
 - Skeleton-based auto-path generation
