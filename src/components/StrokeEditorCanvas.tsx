@@ -133,9 +133,16 @@ export default function StrokeEditorCanvas({
 
     // Draw hover preview (only if not hovering over a dot)
     if (hoveredPoint && hoveredDotIndex === null) {
-      ctx.fillStyle = 'rgba(79, 55, 138, 0.3)';
+      // Outer circle (border)
+      ctx.fillStyle = 'rgba(79, 55, 138, 0.4)';
       ctx.beginPath();
-      ctx.arc(hoveredPoint.x, hoveredPoint.y, 8, 0, Math.PI * 2);
+      ctx.arc(hoveredPoint.x, hoveredPoint.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Inner circle (center)
+      ctx.fillStyle = 'rgba(79, 55, 138, 0.8)';
+      ctx.beginPath();
+      ctx.arc(hoveredPoint.x, hoveredPoint.y, 2, 0, Math.PI * 2);
       ctx.fill();
     }
   }, [text, fontFamily, strokes, currentStroke, hoveredPoint, hoveredDotIndex, width, height]);
@@ -159,8 +166,11 @@ export default function StrokeEditorCanvas({
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // Scale coordinates from display size to canvas logical size
+    const scaleX = width / rect.width;
+    const scaleY = height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
     // Check if clicking on an existing dot in current stroke
     const dotIndex = findClickedDot(x, y);
@@ -171,7 +181,7 @@ export default function StrokeEditorCanvas({
 
     // Otherwise add new dot
     onAddDot({ x, y });
-  }, [onAddDot, onDotClick, findClickedDot]);
+  }, [onAddDot, onDotClick, findClickedDot, width, height]);
 
   // Handle double click to complete stroke
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -186,15 +196,18 @@ export default function StrokeEditorCanvas({
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // Scale coordinates from display size to canvas logical size
+    const scaleX = width / rect.width;
+    const scaleY = height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
     // Check if hovering over a dot
     const dotIndex = findClickedDot(x, y);
     setHoveredDotIndex(dotIndex);
 
     setHoveredPoint({ x, y });
-  }, [findClickedDot]);
+  }, [findClickedDot, width, height]);
 
   const handleMouseLeave = useCallback(() => {
     setHoveredPoint(null);
@@ -210,7 +223,7 @@ export default function StrokeEditorCanvas({
       onDoubleClick={handleDoubleClick}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      className={hoveredDotIndex !== null ? "cursor-pointer" : "cursor-crosshair"}
+      className={hoveredDotIndex !== null ? "cursor-pointer" : "cursor-none"}
       style={{ display: 'block', width: '100%', height: '100%' }}
     />
   );
