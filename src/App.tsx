@@ -130,7 +130,8 @@ export default function App() {
     "Permanent Marker",
     "Indie Flower",
     "Caveat",
-    "Dancing Script"
+    "Dancing Script",
+    "Nanum Brush Script"
   ];
 
   const characterStrokesRef = useRef(characterStrokes);
