@@ -1,9 +1,20 @@
 import { Stroke } from "../types/stroke";
-import { saveGlyphStrokes as saveToSupabase, fetchGlyphStrokes } from "./tracesRepository";
+import { saveGlyphStrokes as saveToSupabase, fetchGlyphStrokes, fetchAllGlyphsForFont } from "./tracesRepository";
+import { getDeviceId } from "./deviceId";
 
 const STORAGE_KEY = "handwrite-traces-v1";
 const SYNC_QUEUE_KEY = "handwrite-sync-queue";
 const SYNC_STATUS_KEY = "handwrite-sync-status";
+
+export interface TraceMetadata {
+  version: number;
+  fontId: string;
+  glyphId: string;
+  timestamp: number;
+  deviceId: string;
+  isLocalEdit: boolean;
+  syncedToSupabase: boolean;
+}
 
 interface TraceStore {
   [font: string]: {
@@ -11,6 +22,13 @@ interface TraceStore {
       strokes: Stroke[];
       lastModified: number;
       syncedToSupabase: boolean;
+      // Extended metadata (optional for backward compatibility)
+      version?: number;
+      fontId?: string;
+      glyphId?: string;
+      timestamp?: number;
+      deviceId?: string;
+      isLocalEdit?: boolean;
     };
   };
 }
@@ -20,6 +38,11 @@ interface SyncQueueItem {
   char: string;
   strokes: Stroke[];
   timestamp: number;
+  // Metadata for version tracking
+  version?: number;
+  fontId?: string;
+  glyphId?: string;
+  deviceId?: string;
 }
 
 const isBrowser = typeof window !== "undefined";
@@ -93,7 +116,18 @@ export function getSyncStatus(): { pending: number; lastSync: number | null } {
 }
 
 // Save to localStorage immediately
-export function saveGlyphStrokesLocal(font: string, char: string, strokes: Stroke[]): boolean {
+export function saveGlyphStrokesLocal(
+  font: string, 
+  char: string, 
+  strokes: Stroke[],
+  metadata?: {
+    version?: number;
+    fontId?: string;
+    glyphId?: string;
+    timestamp?: number;
+    isLocalEdit?: boolean;
+  }
+): boolean {
   if (!font || !char || strokes.length === 0) {
     return false;
   }
@@ -105,27 +139,47 @@ export function saveGlyphStrokesLocal(font: string, char: string, strokes: Strok
       store[font] = {};
     }
     
+    const deviceId = getDeviceId();
+    const existing = store[font][char];
+    
+    // Determine if this is a local edit
+    // If metadata says it's not a local edit, or if we're overwriting existing data from Supabase
+    const isLocalEdit = metadata?.isLocalEdit ?? (existing ? true : false);
+    
     store[font][char] = {
       strokes: JSON.parse(JSON.stringify(strokes)), // Deep clone
       lastModified: Date.now(),
-      syncedToSupabase: false,
+      syncedToSupabase: metadata ? (metadata.version !== undefined ? true : false) : false,
+      // Store metadata if provided
+      version: metadata?.version,
+      fontId: metadata?.fontId,
+      glyphId: metadata?.glyphId,
+      timestamp: metadata?.timestamp ?? Date.now(),
+      deviceId: deviceId,
+      isLocalEdit: isLocalEdit,
     };
     
     writeStore(store);
     
-    // Add to sync queue
-    const queue = readSyncQueue();
-    // Remove any existing entry for this font+char combination
-    const filtered = queue.filter(item => !(item.font === font && item.char === char));
-    filtered.push({
-      font,
-      char,
-      strokes: JSON.parse(JSON.stringify(strokes)),
-      timestamp: Date.now(),
-    });
-    writeSyncQueue(filtered);
+    // Add to sync queue only if this is a local edit (user modification)
+    if (isLocalEdit) {
+      const queue = readSyncQueue();
+      // Remove any existing entry for this font+char combination
+      const filtered = queue.filter(item => !(item.font === font && item.char === char));
+      filtered.push({
+        font,
+        char,
+        strokes: JSON.parse(JSON.stringify(strokes)),
+        timestamp: Date.now(),
+        version: metadata?.version,
+        fontId: metadata?.fontId,
+        glyphId: metadata?.glyphId,
+        deviceId: deviceId,
+      });
+      writeSyncQueue(filtered);
+    }
     
-    console.log(`✓ Saved to localStorage: ${font} "${char}" (${strokes.length} strokes)`);
+    console.log(`✓ Saved to localStorage: ${font} "${char}" (${strokes.length} strokes, isLocalEdit: ${isLocalEdit})`);
     return true;
   } catch (error) {
     console.error("Failed to save to localStorage", error);
@@ -148,6 +202,41 @@ export function loadGlyphStrokesLocal(font: string, char: string): Stroke[] | un
     return JSON.parse(JSON.stringify(data.strokes)); // Deep clone
   } catch (error) {
     console.error("Failed to load from localStorage", error);
+    return undefined;
+  }
+}
+
+// Load with metadata from localStorage
+export function loadGlyphStrokesWithMetadata(font: string, char: string): { strokes: Stroke[]; metadata?: TraceMetadata } | undefined {
+  if (!font || !char) return undefined;
+  
+  try {
+    const store = readStore();
+    const data = store[font]?.[char];
+    
+    if (!data?.strokes?.length) {
+      return undefined;
+    }
+    
+    const strokes = JSON.parse(JSON.stringify(data.strokes)); // Deep clone
+    
+    // Build metadata if available
+    const metadata: TraceMetadata | undefined = 
+      data.version !== undefined && data.fontId && data.glyphId && data.timestamp !== undefined
+        ? {
+            version: data.version,
+            fontId: data.fontId,
+            glyphId: data.glyphId,
+            timestamp: data.timestamp,
+            deviceId: data.deviceId || getDeviceId(),
+            isLocalEdit: data.isLocalEdit ?? false,
+            syncedToSupabase: data.syncedToSupabase,
+          }
+        : undefined;
+    
+    return { strokes, metadata };
+  } catch (error) {
+    console.error("Failed to load from localStorage with metadata", error);
     return undefined;
   }
 }
@@ -199,10 +288,12 @@ export async function processSyncQueue(): Promise<{ success: number; failed: num
   let failedCount = 0;
   const remainingQueue: SyncQueueItem[] = [];
   
+  const deviceId = getDeviceId();
+  
   for (const item of queue) {
     try {
       console.log(`Attempting to sync: ${item.font} "${item.char}" (${item.strokes.length} strokes)`);
-      await saveToSupabase(item.font, item.char, item.strokes);
+      await saveToSupabase(item.font, item.char, item.strokes, { deviceId });
       
       // Mark as synced in local store
       const store = readStore();
@@ -277,6 +368,90 @@ export async function fetchAndHydrateStrokes(font: string, char: string): Promis
   }
   
   return undefined;
+}
+
+/**
+ * Syncs all glyph data for a font from Supabase to local storage.
+ * Overwrites existing local data for that font (fresh start on font selection).
+ * Returns the number of characters synced.
+ */
+export async function syncFontFromSupabase(fontName: string): Promise<number> {
+  if (!fontName) {
+    return 0;
+  }
+
+  try {
+    console.log(`⟳ Syncing font "${fontName}" from Supabase...`);
+    const glyphData = await fetchAllGlyphsForFont(fontName);
+    
+    if (glyphData.length === 0) {
+      console.log(`✓ No glyphs found for font "${fontName}"`);
+      return 0;
+    }
+
+    const store = readStore();
+    const deviceId = getDeviceId();
+    
+    // Clear existing data for this font (fresh start)
+    if (store[fontName]) {
+      delete store[fontName];
+    }
+    store[fontName] = {};
+
+    // Save all fetched glyphs to local storage with metadata
+    for (const glyph of glyphData) {
+      store[fontName][glyph.char] = {
+        strokes: JSON.parse(JSON.stringify(glyph.strokes)), // Deep clone
+        lastModified: glyph.timestamp,
+        syncedToSupabase: true,
+        version: glyph.version,
+        fontId: glyph.fontId,
+        glyphId: glyph.glyphId,
+        timestamp: glyph.timestamp,
+        deviceId: deviceId,
+        isLocalEdit: false, // Data from Supabase, not locally edited
+      };
+    }
+
+    writeStore(store);
+    console.log(`✓ Synced ${glyphData.length} character(s) for font "${fontName}" from Supabase`);
+    
+    return glyphData.length;
+  } catch (error) {
+    console.error(`Failed to sync font "${fontName}" from Supabase:`, error);
+    return 0;
+  }
+}
+
+/**
+ * Marks a character's trace as "used as-is" (quality indicator).
+ * This means the user used the Supabase data without modification.
+ * Does not create a new version in Supabase.
+ */
+export function markAsUsedAsIs(font: string, char: string): boolean {
+  if (!font || !char) {
+    return false;
+  }
+
+  try {
+    const store = readStore();
+    const data = store[font]?.[char];
+    
+    if (!data) {
+      console.warn(`Cannot mark as used-as-is: no data found for ${font} "${char}"`);
+      return false;
+    }
+
+    // Update the isLocalEdit flag to false (used as-is from Supabase)
+    data.isLocalEdit = false;
+    writeStore(store);
+    
+    console.log(`✓ Marked ${font} "${char}" as used-as-is (quality indicator)`);
+    return true;
+  } catch (error) {
+    console.error("Failed to mark as used-as-is", error);
+    return false;
+  }
 }
 
 // Auto-sync on interval

@@ -2,12 +2,16 @@
  * Character layout utilities for multi-character word animation
  */
 
+import { getFontString } from './fontLoader';
+
 export interface CharacterLayout {
   char: string;
   charIndex: number;
   xOffset: number;
   yOffset: number;
 }
+
+export const BASELINE_OFFSET_RATIO = 0.35;
 
 /**
  * Calculate horizontal character positions for rendering a word
@@ -27,14 +31,16 @@ export function calculateCharacterLayout(
 ): CharacterLayout[] {
   if (!text) return [];
 
-  // Create temporary canvas for text measurement
+  // Create temporary canvas for text measurement with proper DPR handling
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) return [];
 
-  ctx.font = `${fontSize}px '${fontFamily}', sans-serif`;
+  // Use the same font string format as rendering
+  const fontString = getFontString(fontFamily, fontSize);
+  ctx.font = fontString;
   ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
+  ctx.textBaseline = 'alphabetic';
 
   // Measure total text width
   const totalWidth = ctx.measureText(text).width;

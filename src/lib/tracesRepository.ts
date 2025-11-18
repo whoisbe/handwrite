@@ -151,12 +151,103 @@ export async function fetchGlyphStrokes(fontName: string, char: string): Promise
   }
 }
 
-export async function saveGlyphStrokes(fontName: string, char: string, strokes: Stroke[], options?: { userId?: string }) {
+export interface GlyphData {
+  char: string;
+  strokes: Stroke[];
+  version: number;
+  fontId: string;
+  glyphId: string;
+  timestamp: number;
+}
+
+/**
+ * Fetches all glyphs for a font with their latest approved stroke sets.
+ * Returns an array of glyph data including metadata.
+ */
+export async function fetchAllGlyphsForFont(fontName: string): Promise<GlyphData[]> {
+  if (!fontName) {
+    return [];
+  }
+
+  try {
+    const { id: fontId } = await getOrCreateFont(fontName);
+    
+    // First, fetch all glyphs for this font
+    const { data: glyphs, error: glyphsError } = await supabase
+      .from("glyphs")
+      .select("id, unicode_codepoint")
+      .eq("font_id", fontId);
+
+    if (glyphsError) {
+      console.error("Failed to fetch glyphs for font", { fontName, error: glyphsError });
+      throw glyphsError;
+    }
+
+    if (!glyphs || glyphs.length === 0) {
+      return [];
+    }
+
+    // For each glyph, fetch the latest approved stroke set
+    const results: GlyphData[] = [];
+
+    for (const glyph of glyphs) {
+      if (!glyph.unicode_codepoint) {
+        continue;
+      }
+
+      const char = glyph.unicode_codepoint;
+      
+      // Fetch latest approved stroke set for this glyph
+      const { data: strokeSet, error: strokeSetError } = await supabase
+        .from("stroke_sets")
+        .select("id, strokes, version, created_at")
+        .eq("glyph_id", glyph.id)
+        .eq("status", "approved")
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (strokeSetError) {
+        console.error(`Failed to fetch stroke set for glyph ${char}`, strokeSetError);
+        continue;
+      }
+
+      if (!strokeSet || !strokeSet.strokes) {
+        continue;
+      }
+
+      // Convert created_at to timestamp
+      const timestamp = strokeSet.created_at
+        ? new Date(strokeSet.created_at).getTime()
+        : Date.now();
+
+      results.push({
+        char,
+        strokes: strokeSet.strokes as Stroke[],
+        version: strokeSet.version,
+        fontId: fontId,
+        glyphId: glyph.id,
+        timestamp,
+      });
+    }
+
+    console.log(`✓ Fetched ${results.length} glyph(s) for font "${fontName}"`);
+    return results;
+  } catch (error) {
+    console.error("Failed to fetch all glyphs for font", { fontName, error });
+    return [];
+  }
+}
+
+export async function saveGlyphStrokes(fontName: string, char: string, strokes: Stroke[], options?: { userId?: string; deviceId?: string }) {
   if (!fontName || !char || strokes.length === 0) {
     return;
   }
 
   console.log(`[tracesRepository] Saving to Supabase: ${fontName} "${char}"`);
+  if (options?.deviceId) {
+    console.log(`[tracesRepository] Device ID: ${options.deviceId}`);
+  }
   
   const { id: fontId } = await getOrCreateFont(fontName);
   console.log(`[tracesRepository] Font ID: ${fontId}`);

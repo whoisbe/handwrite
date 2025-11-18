@@ -1,7 +1,9 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Point } from '../utils/spline';
 import { generateCatmullRomSpline, getCumulativeDistances } from '../utils/spline';
 import { Stroke } from '../types/stroke';
+import { waitForFont, getFontString } from '../utils/fontLoader';
+import { BASELINE_OFFSET_RATIO } from '../utils/layout';
 
 interface StrokeEditorCanvasProps {
   text: string;
@@ -31,25 +33,84 @@ export default function StrokeEditorCanvas({
   const [hoveredPoint, setHoveredPoint] = useState<Point | null>(null);
   const [hoveredDotIndex, setHoveredDotIndex] = useState<number | null>(null);
 
+  // Setup canvas with proper device pixel ratio - runs once on mount and when dimensions change
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const setupCanvas = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      
+      // Use actual displayed size for internal canvas resolution
+      const displayWidth = rect.width || width;
+      const displayHeight = rect.height || height;
+      
+      // Set actual canvas size accounting for DPR
+      canvas.width = displayWidth * dpr;
+      canvas.height = displayHeight * dpr;
+      
+      // Scale context to account for DPR
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+    };
+
+    // Initial setup
+    setupCanvas();
+
+    // Re-setup on resize
+    const resizeObserver = new ResizeObserver(setupCanvas);
+    resizeObserver.observe(canvas);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [width, height]);
+
   // Draw the canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const draw = async () => {
+      // Wait for font to load before rendering
+      await waitForFont(fontFamily, '128px');
 
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-    // Draw text outline (semi-transparent)
-    ctx.save();
-    ctx.font = `128px '${fontFamily}', sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-    ctx.fillText(text || 'A', width / 2, height / 2);
-    ctx.restore();
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const displayWidth = rect.width || width;
+      const displayHeight = rect.height || height;
+      
+      // Ensure canvas is properly sized
+      if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+        canvas.width = displayWidth * dpr;
+        canvas.height = displayHeight * dpr;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+      }
+      
+      // Clear canvas using display coordinates (after DPR scale)
+      ctx.clearRect(0, 0, displayWidth, displayHeight);
+      
+      // Scale context to map logical coordinates (800x400) to display coordinates
+      // This ensures strokes saved in logical coords render correctly at any display size
+      const scaleX = displayWidth / width;
+      const scaleY = displayHeight / height;
+      ctx.save();
+      ctx.scale(scaleX, scaleY);
+
+      // Draw text outline (semi-transparent) using normalized font string
+      ctx.font = getFontString(fontFamily, 128);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+      ctx.fillText(text || 'A', width / 2, height / 2 + (128 * BASELINE_OFFSET_RATIO));
 
     // Draw completed strokes
     strokes.forEach((stroke, index) => {
@@ -145,6 +206,11 @@ export default function StrokeEditorCanvas({
       ctx.arc(hoveredPoint.x, hoveredPoint.y, 2, 0, Math.PI * 2);
       ctx.fill();
     }
+    
+    ctx.restore(); // Restore scale transform
+    };
+
+    void draw();
   }, [text, fontFamily, strokes, currentStroke, hoveredPoint, hoveredDotIndex, width, height]);
 
   // Check if click is near a dot in current stroke
@@ -166,11 +232,9 @@ export default function StrokeEditorCanvas({
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    // Scale coordinates from display size to canvas logical size
-    const scaleX = width / rect.width;
-    const scaleY = height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
+    // Transform from display coordinates to logical coordinates (800x400)
+    const x = ((e.clientX - rect.left) / rect.width) * width;
+    const y = ((e.clientY - rect.top) / rect.height) * height;
 
     // Check if clicking on an existing dot in current stroke
     const dotIndex = findClickedDot(x, y);
@@ -196,11 +260,9 @@ export default function StrokeEditorCanvas({
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    // Scale coordinates from display size to canvas logical size
-    const scaleX = width / rect.width;
-    const scaleY = height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
+    // Transform from display coordinates to logical coordinates (800x400)
+    const x = ((e.clientX - rect.left) / rect.width) * width;
+    const y = ((e.clientY - rect.top) / rect.height) * height;
 
     // Check if hovering over a dot
     const dotIndex = findClickedDot(x, y);
@@ -217,8 +279,6 @@ export default function StrokeEditorCanvas({
   return (
     <canvas
       ref={canvasRef}
-      width={width}
-      height={height}
       onClick={handleCanvasClick}
       onDoubleClick={handleDoubleClick}
       onMouseMove={handleMouseMove}

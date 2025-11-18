@@ -2,7 +2,8 @@ import { useRef, useEffect, useState } from 'react';
 import { Stroke } from '../types/stroke';
 import { getPointAtDistance } from '../utils/spline';
 import { easings, EasingType } from '../utils/easing';
-import { calculateCharacterLayout, transformPoint } from '../utils/layout';
+import { calculateCharacterLayout, transformPoint, BASELINE_OFFSET_RATIO } from '../utils/layout';
+import { waitForFont, getFontString } from '../utils/fontLoader';
 
 interface AnimationPlayerCanvasProps {
   text: string;
@@ -153,41 +154,100 @@ export default function AnimationPlayerCanvas({
     };
   }, [isPlaying, totalDuration, onPlaybackComplete]);
 
+  // Setup canvas with proper device pixel ratio
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const setupCanvas = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      
+      // Use actual displayed size for internal canvas resolution
+      const displayWidth = rect.width || width;
+      const displayHeight = rect.height || height;
+      
+      // Set actual canvas size accounting for DPR
+      canvas.width = displayWidth * dpr;
+      canvas.height = displayHeight * dpr;
+      
+      // Scale context to account for DPR
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+    };
+
+    // Initial setup
+    setupCanvas();
+
+    // Re-setup on resize
+    const resizeObserver = new ResizeObserver(setupCanvas);
+    resizeObserver.observe(canvas);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [width, height]);
+
   // Render animation
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const render = async () => {
+      // Wait for font to load before rendering
+      await waitForFont(fontFamily, '128px');
 
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-    // Draw background text outline (very faint)
-    ctx.save();
-    ctx.font = `128px '${fontFamily}', sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-    ctx.fillText(text || 'A', width / 2, height / 2);
-    ctx.restore();
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const displayWidth = rect.width || width;
+      const displayHeight = rect.height || height;
+      
+      // Ensure canvas is properly sized
+      if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+        canvas.width = displayWidth * dpr;
+        canvas.height = displayHeight * dpr;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+      }
+      
+      // Clear canvas using display coordinates (after DPR scale)
+      ctx.clearRect(0, 0, displayWidth, displayHeight);
+      
+      // Scale context to map logical coordinates (800x400) to display coordinates
+      // This ensures strokes saved in logical coords render correctly at any display size
+      const scaleX = displayWidth / width;
+      const scaleY = displayHeight / height;
+      ctx.save();
+      ctx.scale(scaleX, scaleY);
 
-    // Create offscreen canvas for mask-based reveal
-    const offscreenCanvas = document.createElement('canvas');
-    offscreenCanvas.width = width;
-    offscreenCanvas.height = height;
-    const offscreenCtx = offscreenCanvas.getContext('2d');
-    if (!offscreenCtx) return;
+      // Draw background text outline (very faint) using normalized font string
+      ctx.font = getFontString(fontFamily, 128);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+      ctx.fillText(text || 'A', width / 2, height / 2 + (128 * BASELINE_OFFSET_RATIO));
 
-    // Draw full text on offscreen canvas
-    offscreenCtx.font = `128px '${fontFamily}', sans-serif`;
-    offscreenCtx.textAlign = 'center';
-    offscreenCtx.textBaseline = 'middle';
-    offscreenCtx.fillStyle = 'rgba(0, 0, 0, 1)';
-    offscreenCtx.fillText(text || 'A', width / 2, height / 2);
+      // Create offscreen canvas for mask-based reveal (use logical size)
+      const offscreenCanvas = document.createElement('canvas');
+      offscreenCanvas.width = width;
+      offscreenCanvas.height = height;
+      const offscreenCtx = offscreenCanvas.getContext('2d');
+      if (!offscreenCtx) return;
 
-    // Create mask canvas
+      // Draw full text on offscreen canvas (logical coordinates) using normalized font string
+      offscreenCtx.font = getFontString(fontFamily, 128);
+      offscreenCtx.textAlign = 'center';
+      offscreenCtx.textBaseline = 'alphabetic';
+      offscreenCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+      offscreenCtx.fillText(text || 'A', width / 2, height / 2 + (128 * BASELINE_OFFSET_RATIO));
+
+    // Create mask canvas (use logical size)
     const maskCanvas = document.createElement('canvas');
     maskCanvas.width = width;
     maskCanvas.height = height;
@@ -272,16 +332,18 @@ export default function AnimationPlayerCanvas({
     offscreenCtx.globalCompositeOperation = 'destination-in';
     offscreenCtx.drawImage(maskCanvas, 0, 0);
 
-    // Draw masked text to main canvas
-    ctx.drawImage(offscreenCanvas, 0, 0);
+      // Draw masked text to main canvas
+      // The context is already scaled to map logical to display, so draw at logical size
+      ctx.drawImage(offscreenCanvas, 0, 0, width, height);
+      ctx.restore(); // Restore scale transform
+    };
 
+    void render();
   }, [text, fontFamily, strokes, characterStrokes, currentTime, easing, strokeDuration, strokeGap, characterGap, speedMultiplier, width, height]);
 
   return (
     <canvas
       ref={canvasRef}
-      width={width}
-      height={height}
       style={{ display: 'block', width: '100%', height: '100%' }}
     />
   );

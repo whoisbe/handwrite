@@ -15,7 +15,10 @@ import {
   fetchAndHydrateStrokes, 
   processSyncQueue, 
   startAutoSync,
-  getSyncStatus
+  getSyncStatus,
+  syncFontFromSupabase,
+  markAsUsedAsIs,
+  loadGlyphStrokesWithMetadata
 } from "./lib/hybridPersistence";
 
 // Canvas control button icons
@@ -268,13 +271,44 @@ export default function App() {
     }
 
     // Save to localStorage first (instant, offline-capable)
+    // Check if each character was locally edited or used as-is
     let localSaveSuccess = true;
+    const locallyEditedChars: string[] = [];
+    const usedAsIsChars: string[] = [];
+
     glyphEntries.forEach(([charIndex, charStrokes]) => {
       const glyphChar = inputText[parseInt(charIndex, 10)];
       if (glyphChar && charStrokes?.length) {
-        const success = saveGlyphStrokesLocal(selectedFont, glyphChar, charStrokes);
+        // Check if this character was locally edited by comparing with existing data
+        const existing = loadGlyphStrokesWithMetadata(selectedFont, glyphChar);
+        
+        // If existing data exists and isLocalEdit is false (from Supabase), check if strokes match
+        let isLocalEdit = true; // Default to local edit (user created/modified)
+        
+        if (existing && existing.metadata?.isLocalEdit === false) {
+          // Compare strokes to see if they match (simple comparison by stroke count and IDs)
+          const existingStrokeIds = existing.strokes.map(s => s.id).sort().join(',');
+          const newStrokeIds = charStrokes.map(s => s.id).sort().join(',');
+          const existingStrokeCount = existing.strokes.length;
+          const newStrokeCount = charStrokes.length;
+          
+          // If stroke IDs and count match, it's likely the same (used as-is)
+          if (existingStrokeIds === newStrokeIds && existingStrokeCount === newStrokeCount) {
+            isLocalEdit = false; // Used as-is from Supabase
+          }
+        }
+        
+        // Save with isLocalEdit flag
+        const success = saveGlyphStrokesLocal(selectedFont, glyphChar, charStrokes, {
+          isLocalEdit: isLocalEdit
+        });
+        
         if (!success) {
           localSaveSuccess = false;
+        } else if (isLocalEdit) {
+          locallyEditedChars.push(glyphChar);
+        } else {
+          usedAsIsChars.push(glyphChar);
         }
       }
     });
@@ -282,6 +316,18 @@ export default function App() {
     if (!localSaveSuccess) {
       alert("Failed to save strokes locally. Please check your browser storage.");
       return;
+    }
+
+    // Mark characters that were used as-is (quality indicator, no new version created)
+    usedAsIsChars.forEach(char => {
+      markAsUsedAsIs(selectedFont, char);
+    });
+    
+    if (usedAsIsChars.length > 0) {
+      console.log(`✓ Marked ${usedAsIsChars.length} character(s) as used-as-is (quality indicator)`);
+    }
+    if (locallyEditedChars.length > 0) {
+      console.log(`✓ ${locallyEditedChars.length} character(s) marked for sync as new version(s)`);
     }
 
     const allGlyphData = glyphEntries.map(([charIndex, charStrokes]) => ({
@@ -369,17 +415,29 @@ export default function App() {
 
   useEffect(() => {
     const text = latestTextRef.current;
-    if (!text) {
+    
+    // Sync font from Supabase first (blocking)
+    const syncAndHydrate = async () => {
+      if (!text) {
+        setCharacterStrokes({});
+        setCurrentStroke([]);
+        setCurrentCharIndex(0);
+        return;
+      }
+
+      // Sync all glyphs for the selected font from Supabase
+      console.log(`Syncing font "${selectedFont}" from Supabase...`);
+      const syncedCount = await syncFontFromSupabase(selectedFont);
+      console.log(`Synced ${syncedCount} character(s) for font "${selectedFont}"`);
+
+      // Then hydrate persisted strokes
       setCharacterStrokes({});
       setCurrentStroke([]);
       setCurrentCharIndex(0);
-      return;
-    }
+      await hydratePersistedStrokes(text, selectedFont);
+    };
 
-    setCharacterStrokes({});
-    setCurrentStroke([]);
-    setCurrentCharIndex(0);
-    void hydratePersistedStrokes(text, selectedFont);
+    void syncAndHydrate();
   }, [selectedFont, hydratePersistedStrokes]);
 
   // Initialize auto-sync on mount
