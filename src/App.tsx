@@ -9,7 +9,14 @@ import StrokeEditorCanvas from "./components/StrokeEditorCanvas";
 import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import { Stroke } from "./types/stroke";
 import { Point, generateCatmullRomSpline, getCumulativeDistances } from "./utils/spline";
-import { fetchGlyphStrokes, saveGlyphStrokes } from "./lib/tracesRepository";
+import { 
+  saveGlyphStrokesLocal, 
+  loadStrokesForText, 
+  fetchAndHydrateStrokes, 
+  processSyncQueue, 
+  startAutoSync,
+  getSyncStatus
+} from "./lib/hybridPersistence";
 
 // Canvas control button icons
 function UndoIcon() {
@@ -101,6 +108,9 @@ export default function App() {
   
   // Saved data for debug display
   const [savedData, setSavedData] = useState<any>(null);
+  
+  // Sync status
+  const [syncStatus, setSyncStatus] = useState<{ pending: number; lastSync: number | null }>({ pending: 0, lastSync: null });
 
   const latestTextRef = useRef(inputText);
   useEffect(() => {
@@ -137,7 +147,7 @@ export default function App() {
         if (characterStrokesRef.current[index]?.length) {
           return null;
         }
-        const persisted = await fetchGlyphStrokes(fontName, char);
+        const persisted = await fetchAndHydrateStrokes(fontName, char);
         return persisted?.length ? { index, strokes: persisted } : null;
       })
     );
@@ -257,18 +267,20 @@ export default function App() {
       return;
     }
 
-    try {
-      await Promise.all(
-        glyphEntries.map(async ([charIndex, charStrokes]) => {
-          const glyphChar = inputText[parseInt(charIndex, 10)];
-          if (glyphChar && charStrokes?.length) {
-            await saveGlyphStrokes(selectedFont, glyphChar, charStrokes);
-          }
-        })
-      );
-    } catch (error) {
-      console.error("Failed to save strokes", error);
-      alert("Unable to save strokes right now. Please try again.");
+    // Save to localStorage first (instant, offline-capable)
+    let localSaveSuccess = true;
+    glyphEntries.forEach(([charIndex, charStrokes]) => {
+      const glyphChar = inputText[parseInt(charIndex, 10)];
+      if (glyphChar && charStrokes?.length) {
+        const success = saveGlyphStrokesLocal(selectedFont, glyphChar, charStrokes);
+        if (!success) {
+          localSaveSuccess = false;
+        }
+      }
+    });
+
+    if (!localSaveSuccess) {
+      alert("Failed to save strokes locally. Please check your browser storage.");
       return;
     }
 
@@ -291,7 +303,20 @@ export default function App() {
     console.log("Saved strokes:", savedOutput);
     setSavedData(savedOutput);
 
-    alert(`Successfully saved strokes for "${inputText}"!`);
+    // Show success message immediately
+    alert(`✓ Saved strokes for "${inputText}" locally! Syncing to cloud in background...`);
+
+    // Update sync status
+    setSyncStatus(getSyncStatus());
+
+    // Sync to Supabase in background (non-blocking)
+    processSyncQueue().then(result => {
+      console.log("Background sync result:", result);
+      setSyncStatus(getSyncStatus());
+    }).catch(error => {
+      console.error("Background sync error:", error);
+      setSyncStatus(getSyncStatus());
+    });
 
     await hydratePersistedStrokes(inputText, selectedFont);
     setCurrentStroke([]);
@@ -357,13 +382,41 @@ export default function App() {
     void hydratePersistedStrokes(text, selectedFont);
   }, [selectedFont, hydratePersistedStrokes]);
 
+  // Initialize auto-sync on mount
+  useEffect(() => {
+    startAutoSync(30000); // Sync every 30 seconds
+    setSyncStatus(getSyncStatus());
+    
+    // Update sync status periodically
+    const interval = setInterval(() => {
+      setSyncStatus(getSyncStatus());
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="bg-white min-h-screen p-6">
       {/* Header */}
       <header className="text-center mb-8">
-        <h1 className="font-['Permanent_Marker',sans-serif] text-[40px] text-black">
+        <h1 className="font-['Nanum_Brush_Script',sans-serif] text-[40px] text-black">
           Handwrite
         </h1>
+        {/* Sync Status Indicator */}
+        <div className="mt-1 text-xs text-gray-600">
+          {syncStatus.pending > 0 ? (
+            <span>Sync: {syncStatus.pending} pending | <button onClick={async () => {
+              console.log("=== MANUAL SYNC ===");
+              const result = await processSyncQueue();
+              console.log("Result:", result);
+              setSyncStatus(getSyncStatus());
+            }} className="underline">sync now</button></span>
+          ) : syncStatus.lastSync ? (
+            <span>Sync: up to date</span>
+          ) : (
+            <span>Sync: no data</span>
+          )}
+        </div>
       </header>
 
       {/* Input Controls */}
@@ -526,16 +579,71 @@ export default function App() {
 
         {/* Debug Display */}
         <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h2 className="text-lg font-semibold mb-3">Saved Data (Debug)</h2>
-          {savedData ? (
-            <div className="bg-gray-50 rounded p-3 overflow-auto max-h-[300px]">
-              <pre className="text-xs text-gray-800 whitespace-pre-wrap">
-                {JSON.stringify(savedData, null, 2)}
-              </pre>
+          <h2 className="text-lg font-semibold mb-3">Debug Info</h2>
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold mb-1">Sync Status:</h3>
+              <div className="text-xs bg-gray-50 rounded p-2">
+                <div>Pending: {syncStatus.pending}</div>
+                <div>Last Sync: {syncStatus.lastSync ? new Date(syncStatus.lastSync).toLocaleTimeString() : 'Never'}</div>
+              </div>
             </div>
-          ) : (
-            <p className="text-sm text-gray-500 italic">No data saved yet. Click the ✓ Check button to save.</p>
-          )}
+            
+            <div className="space-y-2">
+              <button
+                onClick={async () => {
+                  console.log("=== MANUAL SYNC TEST ===");
+                  try {
+                    const result = await processSyncQueue();
+                    console.log("Sync result:", result);
+                    setSyncStatus(getSyncStatus());
+                    alert(`✓ Sync complete\nSuccess: ${result.success}\nFailed: ${result.failed}\n\nCheck console for details.`);
+                  } catch (error) {
+                    console.error("Sync error:", error);
+                    alert(`✗ Sync failed: ${error instanceof Error ? error.message : String(error)}`);
+                  }
+                }}
+                className="w-full px-3 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600"
+              >
+                Test Sync Now
+              </button>
+              
+              <button
+                onClick={() => {
+                  try {
+                    const syncQueue = localStorage.getItem('handwrite-sync-queue');
+                    const traces = localStorage.getItem('handwrite-traces-v1');
+                    const status = localStorage.getItem('handwrite-sync-status');
+                    
+                    console.log("=== LOCALSTORAGE INSPECTION ===");
+                    console.log("Sync Queue:", syncQueue ? JSON.parse(syncQueue) : null);
+                    console.log("Traces:", traces ? JSON.parse(traces) : null);
+                    console.log("Status:", status ? JSON.parse(status) : null);
+                    
+                    const queueData = syncQueue ? JSON.parse(syncQueue) : [];
+                    alert(`localStorage Contents:\n\nSync Queue: ${queueData.length} items\nTraces: ${traces ? 'Present' : 'Empty'}\n\nSee console for details`);
+                  } catch (error) {
+                    console.error("Error reading localStorage:", error);
+                    alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
+                  }
+                }}
+                className="w-full px-3 py-2 bg-gray-500 text-white text-sm rounded hover:bg-gray-600"
+              >
+                Inspect localStorage
+              </button>
+            </div>
+            
+            {savedData && (
+              <div>
+                <h3 className="text-sm font-semibold mb-1">Saved Data:</h3>
+                <div className="bg-gray-50 rounded p-3 overflow-auto max-h-[200px]">
+                  <pre className="text-xs text-gray-800 whitespace-pre-wrap">
+                    {JSON.stringify(savedData, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

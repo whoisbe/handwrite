@@ -13,7 +13,12 @@ if (!supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 	auth: {
-		persistSession: true,
-		detectSessionInUrl: true,
+		persistSession: false,
+		autoRefreshToken: false,
+		detectSessionInUrl: false,
 	},
 });
+
+// Log connection info for debugging
+console.log("[Supabase] Initialized with URL:", supabaseUrl);
+console.log("[Supabase] Using anon key (first 20 chars):", supabaseAnonKey?.substring(0, 20));

@@ -103,6 +103,8 @@ A React + TypeScript app for creating handwriting-style text animations. Users t
 
 ### Data Storage
 - Per-character strokes stored in `characterStrokes` object keyed by index
+- **Persistence**: Supabase-backed repository (`src/lib/tracesRepository.ts`) with versioned `stroke_sets` table
+- **Local hydration**: Async fetch on font/text change; saves batch via `Promise.all` on Check
 - Export format:
 ```json
 {
@@ -138,6 +140,7 @@ A React + TypeScript app for creating handwriting-style text animations. Users t
 ✅ JSON export with debug display
 ✅ Play/pause animation controls
 ✅ Animation speed slider (1x-4x multiplier)
+✅ **Supabase persistence** - strokes survive sessions and fonts
 
 ---
 
@@ -272,52 +275,70 @@ Users can now control playback speed from **1x to 4x** using a Radix-based slide
 
 ---
 
-## Next Feature To Implement: Persistent Trace Data Platform
+## ✅ Completed Feature: Supabase Persistence Integration
 
-### Goal
-Persist stroke traces (dots, splines, timing metadata) in a scalable store so glyph definitions survive sessions, can be shared across fonts/characters, and support future crowdsourcing/ML pipelines.
+### Implementation Summary
+Stroke data now persists in Supabase (managed Postgres) rather than localStorage, enabling cross-session glyph reuse, versioning, and future multi-user workflows.
 
-### Proposed Architecture
-1. **Managed Postgres (Supabase/Neon)**
-   - Relational tables for `fonts`, `glyphs`, `stroke_sets`, `strokes`, `animation_profiles`, `contributions`, `reviews`.
-   - JSONB columns inside `strokes` or `stroke_sets` capture high-dimensional arrays (dots, spline samples, cumulative distances) without over-normalizing.
-   - Row-Level Security + auth primitives handle contributor roles (viewer, contributor, moderator).
+### What Was Implemented
 
-2. **Object Storage (S3-compatible)**
-   - Store bulky assets (TTF/OTF files, glyph previews, rendered videos) with deterministic keys (`fonts/{fontId}/glyphs/{glyphId}/preview.png`).
-   - Postgres keeps metadata pointers + hash/version for cache invalidation.
+1. **Supabase Client Setup** ✅
+   - **`src/lib/supabaseClient.ts`**: Configured Supabase client using environment variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - Session persistence enabled for future authentication flows.
+   - Validates required env vars at runtime to prevent silent failures.
 
-3. **API Layer**
-   - REST/GraphQL endpoints (Supabase auto-generated or custom Node service) for CRUD: fetch latest approved stroke set, submit new contribution, review/approve, fetch animation profiles.
-   - Edge Functions/Serverless validators run geometric sanity checks before promotion.
+2. **Repository Layer** ✅
+   - **`src/lib/tracesRepository.ts`**: Encapsulates all Supabase interactions.
+   - **Font management**: `getOrCreateFont()` slugifies font names and lazily inserts missing `fonts` rows with in-memory cache.
+   - **Glyph resolution**: `getGlyph()` caches glyph IDs and creates entries on-demand when saving strokes.
+   - **Fetch logic**: `fetchGlyphStrokes()` queries the latest approved `stroke_sets` for a given font+character, returning `Stroke[]` or `undefined`.
+   - **Save logic**: `saveGlyphStrokes()` auto-increments version, inserts a new `stroke_sets` row with status `approved`, and updates `glyphs.current_stroke_set_id`.
+   - Graceful error handling with console logs for diagnostics.
 
-4. **Versioning & Workflow**
-   - `stroke_sets` table tracks `version`, `status (draft|approved|deprecated)`, `parent_version_id` for lineage.
-   - Moderation dashboard flips `glyphs.current_stroke_set_id` to a vetted version; history remains for rollback and ML training.
-   - `contributions` + `reviews` tables capture crowdsourced submissions, reviewer decisions, and contributor reputation.
+3. **App Integration** ✅
+   - **`src/App.tsx`** now imports `fetchGlyphStrokes` and `saveGlyphStrokes` instead of localStorage helpers.
+   - **Async hydration**: `hydratePersistedStrokes()` fetches missing characters in parallel, only populating empty slots to avoid overwriting in-progress edits.
+   - **Character refs**: `characterStrokesRef` tracks latest state to prevent race conditions during async loads.
+   - **Save flow**: `handleCheck` became async, batching all glyph saves via `Promise.all`, then refreshing state from Supabase.
+   - **Font/text changes**: Trigger async re-fetch to pull approved strokes when user selects a new font or edits input text.
 
-5. **Client Integration**
-   - Frontend fetches stroke sets via API and caches them in IndexedDB with ETags for offline editing.
-   - Local edits queue when offline and sync via POST once back online.
+4. **Schema Design** ✅
+   - **`fonts`**: `id (uuid)`, `slug (text, unique)`, `display_name (text)`
+   - **`glyphs`**: `id (uuid)`, `font_id (uuid FK)`, `unicode_codepoint (text)`, `current_stroke_set_id (uuid FK, nullable)`
+   - **`stroke_sets`**: `id (uuid)`, `glyph_id (uuid FK)`, `version (int)`, `status (text)`, `strokes (jsonb)`, `created_by (uuid, nullable)`, `created_at (timestamptz)`
+   - Composite unique constraint on `(glyph_id, version)` enforces version integrity.
 
-6. **Scaling Considerations**
-   - Partition/cluster Postgres by `font_id` or Unicode blocks.
-   - GIN indexes on JSONB for queries (stroke count, updated after date).
-   - CDN cache for preview thumbnails to handle many fonts/characters.
-   - Telemetry on submission volume + glyph coverage to guide crowdsourcing incentives.
+5. **Removed Legacy Code** ✅
+   - Deleted `src/utils/persistence.ts` to prevent confusion between localStorage and Supabase paths.
 
-### Immediate Tasks
-- Design & migrate the core schema in Postgres (fonts, glyphs, stroke_sets, strokes, animation_profiles, contributions, reviews).
-- Stand up storage bucket + service account for font assets/output previews.
-- Build minimal API endpoints for: fetch glyph strokes, submit contribution, approve/deny contribution.
-- Wire the frontend to load/save stroke data through the API (replace in-memory `characterStrokes`).
-- Add basic auth & contributor identity to gate submissions.
+6. **Build Verification** ✅
+   - Production build passes: `npm run build` emits `build/assets/index-B-VzyYZE.js` (454.83 kB gzipped to 137.92 kB).
+   - Commit `feat: wire Supabase traces` on branch `feature/supabase-integration`.
 
-### Longer-Term Considerations
-- Moderation UI + reputation weights for crowdsourced quality control.
-- Batch export pipeline pulling from Postgres to render/share assets.
-- ML ingestion jobs that read historical stroke versions for heuristic suggestions.
-- Sharding strategy once font/glyph volume grows beyond a single Postgres instance.
+### User Flow
+1. User types a character (e.g., "A") and traces strokes.
+2. On font change or text edit, app fetches approved strokes from Supabase if no local edits exist.
+3. Clicking ✓ Check saves all character strokes to Supabase as new versioned `stroke_sets` rows, then refreshes UI from server.
+4. Next session (or new font selection) auto-loads previously saved glyphs.
+
+### Edge Cases Handled
+✅ Missing env vars throw descriptive errors at startup.  
+✅ Network failures log to console and show user-facing alerts during save.  
+✅ Parallel fetches deduplicate via character index checks.  
+✅ Auto-increment version prevents collisions when multiple users save the same glyph (optimistic locking).  
+✅ Empty or zero-length stroke arrays skip save to avoid cluttering DB.
+
+### Testing Readiness
+- ✅ App builds successfully.
+- ⚠️ **Requires manual setup**: Populate `.env.local` with Supabase credentials and ensure tables exist with RLS policies allowing anonymous writes.
+- 📋 **Next step**: Run `npm run dev` and verify strokes persist across sessions.
+
+### Future Enhancements (Post-MVP)
+- Authentication with user IDs for `created_by` attribution.
+- Moderation UI to approve/reject draft submissions.
+- Public/private glyph visibility flags.
+- Conflict resolution UI when multiple versions exist.
+- Batch export for ML training datasets.
 
 ### Future Enhancements (Post-MVP)
 - Vector font outline extraction

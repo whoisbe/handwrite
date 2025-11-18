@@ -156,13 +156,19 @@ export async function saveGlyphStrokes(fontName: string, char: string, strokes: 
     return;
   }
 
+  console.log(`[tracesRepository] Saving to Supabase: ${fontName} "${char}"`);
+  
   const { id: fontId } = await getOrCreateFont(fontName);
+  console.log(`[tracesRepository] Font ID: ${fontId}`);
+  
   const glyphId = await getGlyph(fontId, char, true);
   if (!glyphId) {
     throw new Error("Unable to resolve glyph id");
   }
+  console.log(`[tracesRepository] Glyph ID: ${glyphId}`);
 
   const nextVersion = await fetchNextVersion(glyphId);
+  console.log(`[tracesRepository] Next version: ${nextVersion}`);
 
   const { data, error } = await supabase
     .from("stroke_sets")
@@ -177,11 +183,26 @@ export async function saveGlyphStrokes(fontName: string, char: string, strokes: 
     .single();
 
   if (error) {
-    throw error;
+    console.error("[tracesRepository] Error inserting stroke_set:", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw new Error(`Supabase insert failed: ${error.message} (code: ${error.code})`);
   }
 
-  await supabase
+  console.log(`[tracesRepository] Stroke set created: ${data.id}`);
+
+  const { error: updateError } = await supabase
     .from("glyphs")
     .update({ current_stroke_set_id: data.id })
     .eq("id", glyphId);
+  
+  if (updateError) {
+    console.error("[tracesRepository] Error updating glyph:", updateError);
+    throw updateError;
+  }
+  
+  console.log(`[tracesRepository] Successfully saved: ${fontName} "${char}"`);
 }
