@@ -216,8 +216,9 @@ export default function AnimationPlayerCanvas({
         ctx.scale(dpr, dpr);
       }
       
-      // Clear canvas using display coordinates (after DPR scale)
-      ctx.clearRect(0, 0, displayWidth, displayHeight);
+      // Fill canvas with white background using display coordinates (after DPR scale)
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, displayWidth, displayHeight);
       
       // Scale context to map logical coordinates (800x400) to display coordinates
       // This ensures strokes saved in logical coords render correctly at any display size
@@ -226,12 +227,7 @@ export default function AnimationPlayerCanvas({
       ctx.save();
       ctx.scale(scaleX, scaleY);
 
-      // Draw background text outline (very faint) using normalized font string
-      ctx.font = getFontString(fontFamily, 128);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-      ctx.fillText(text || 'A', width / 2, height / 2 + (128 * BASELINE_OFFSET_RATIO));
+      // Background text outline is now transparent (removed for cleaner animation view)
 
       // Create offscreen canvas for mask-based reveal (use logical size)
       const offscreenCanvas = document.createElement('canvas');
@@ -247,6 +243,24 @@ export default function AnimationPlayerCanvas({
       offscreenCtx.fillStyle = 'rgba(0, 0, 0, 1)';
       offscreenCtx.fillText(text || 'A', width / 2, height / 2 + (128 * BASELINE_OFFSET_RATIO));
 
+    // Calculate total duration for completion check
+    let totalDuration = 0;
+    let lastCharIndex = -1;
+    
+    timelineStrokes.current.forEach((item, index) => {
+      if (item.charIndex !== lastCharIndex && lastCharIndex !== -1) {
+        totalDuration += characterGap / speedMultiplier;
+      }
+      lastCharIndex = item.charIndex;
+      totalDuration += strokeDuration / speedMultiplier;
+      if (index < timelineStrokes.current.length - 1) {
+        totalDuration += strokeGap / speedMultiplier;
+      }
+    });
+
+    const animationCompleted = currentTime >= totalDuration && totalDuration > 0;
+    const shouldShowText = isPlaying || animationCompleted;
+
     // Create mask canvas (use logical size)
     const maskCanvas = document.createElement('canvas');
     maskCanvas.width = width;
@@ -254,14 +268,16 @@ export default function AnimationPlayerCanvas({
     const maskCtx = maskCanvas.getContext('2d');
     if (!maskCtx) return;
 
-    // Draw reveal mask based on current time with proper timeline
-    const easingFn = easings[easing];
+    // Draw reveal mask when animation is playing or has completed
+    if (shouldShowText) {
+      // Draw reveal mask based on current time with proper timeline
+      const easingFn = easings[easing];
 
-    // Calculate timing for each stroke including character gaps with speed multiplier
-    let accumulatedTime = 0;
-    let previousCharIndex = -1;
+      // Calculate timing for each stroke including character gaps with speed multiplier
+      let accumulatedTime = 0;
+      let previousCharIndex = -1;
 
-    timelineStrokes.current.forEach((item) => {
+      timelineStrokes.current.forEach((item) => {
       const { stroke, charIndex, xOffset, yOffset } = item;
 
       // Add character gap if switching to new character
@@ -326,20 +342,25 @@ export default function AnimationPlayerCanvas({
           currentDistance += step;
         }
       }
-    });
+      });
+    }
 
-    // Apply mask to text
-    offscreenCtx.globalCompositeOperation = 'destination-in';
-    offscreenCtx.drawImage(maskCanvas, 0, 0);
+    // Apply mask to text (only if mask was drawn)
+    if (shouldShowText) {
+      offscreenCtx.globalCompositeOperation = 'destination-in';
+      offscreenCtx.drawImage(maskCanvas, 0, 0);
+    }
 
-      // Draw masked text to main canvas
+      // Draw masked text to main canvas (when playing or animation completed)
       // The context is already scaled to map logical to display, so draw at logical size
-      ctx.drawImage(offscreenCanvas, 0, 0, width, height);
+      if (shouldShowText) {
+        ctx.drawImage(offscreenCanvas, 0, 0, width, height);
+      }
       ctx.restore(); // Restore scale transform
     };
 
     void render();
-  }, [text, fontFamily, strokes, characterStrokes, currentTime, easing, strokeDuration, strokeGap, characterGap, speedMultiplier, width, height]);
+  }, [text, fontFamily, strokes, characterStrokes, currentTime, isPlaying, easing, strokeDuration, strokeGap, characterGap, speedMultiplier, width, height]);
 
   return (
     <canvas
