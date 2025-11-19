@@ -20,6 +20,7 @@ interface AnimationPlayerCanvasProps {
   width?: number;
   height?: number;
   invertColors?: boolean; // Invert colors (white bg -> black bg, black text -> white text)
+  textColor?: string | null; // Custom text color (overrides invertColors when set)
 }
 
 export default function AnimationPlayerCanvas({
@@ -36,7 +37,8 @@ export default function AnimationPlayerCanvas({
   easing = 'easeInOut',
   width = 800,
   height = 400,
-  invertColors = false
+  invertColors = false,
+  textColor = null
 }: AnimationPlayerCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
@@ -242,7 +244,12 @@ export default function AnimationPlayerCanvas({
       offscreenCtx.font = getFontString(fontFamily, 128);
       offscreenCtx.textAlign = 'center';
       offscreenCtx.textBaseline = 'alphabetic';
-      offscreenCtx.fillStyle = invertColors ? 'rgba(255, 255, 255, 1)' : 'rgba(0, 0, 0, 1)';
+      // Use textColor if provided (overrides invertColors), otherwise fall back to invertColors logic
+      if (textColor) {
+        offscreenCtx.fillStyle = textColor;
+      } else {
+        offscreenCtx.fillStyle = invertColors ? 'rgba(255, 255, 255, 1)' : 'rgba(0, 0, 0, 1)';
+      }
       offscreenCtx.fillText(text || 'A', width / 2, height / 2 + (128 * BASELINE_OFFSET_RATIO));
 
     // Calculate total duration for completion check
@@ -362,7 +369,7 @@ export default function AnimationPlayerCanvas({
     };
 
     void render();
-  }, [text, fontFamily, strokes, characterStrokes, currentTime, isPlaying, easing, strokeDuration, strokeGap, characterGap, speedMultiplier, width, height, invertColors]);
+  }, [text, fontFamily, strokes, characterStrokes, currentTime, isPlaying, easing, strokeDuration, strokeGap, characterGap, speedMultiplier, width, height, invertColors, textColor]);
 
   return (
     <canvas
