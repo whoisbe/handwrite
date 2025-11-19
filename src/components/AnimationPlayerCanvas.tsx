@@ -19,6 +19,7 @@ interface AnimationPlayerCanvasProps {
   easing?: EasingType;
   width?: number;
   height?: number;
+  invertColors?: boolean; // Invert colors (white bg -> black bg, black text -> white text)
 }
 
 export default function AnimationPlayerCanvas({
@@ -34,7 +35,8 @@ export default function AnimationPlayerCanvas({
   speedMultiplier = 1,
   easing = 'easeInOut',
   width = 800,
-  height = 400
+  height = 400,
+  invertColors = false
 }: AnimationPlayerCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
@@ -216,8 +218,8 @@ export default function AnimationPlayerCanvas({
         ctx.scale(dpr, dpr);
       }
       
-      // Fill canvas with white background using display coordinates (after DPR scale)
-      ctx.fillStyle = 'white';
+      // Fill canvas with background color using display coordinates (after DPR scale)
+      ctx.fillStyle = invertColors ? 'black' : 'white';
       ctx.fillRect(0, 0, displayWidth, displayHeight);
       
       // Scale context to map logical coordinates (800x400) to display coordinates
@@ -240,7 +242,7 @@ export default function AnimationPlayerCanvas({
       offscreenCtx.font = getFontString(fontFamily, 128);
       offscreenCtx.textAlign = 'center';
       offscreenCtx.textBaseline = 'alphabetic';
-      offscreenCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+      offscreenCtx.fillStyle = invertColors ? 'rgba(255, 255, 255, 1)' : 'rgba(0, 0, 0, 1)';
       offscreenCtx.fillText(text || 'A', width / 2, height / 2 + (128 * BASELINE_OFFSET_RATIO));
 
     // Calculate total duration for completion check
@@ -360,7 +362,7 @@ export default function AnimationPlayerCanvas({
     };
 
     void render();
-  }, [text, fontFamily, strokes, characterStrokes, currentTime, isPlaying, easing, strokeDuration, strokeGap, characterGap, speedMultiplier, width, height]);
+  }, [text, fontFamily, strokes, characterStrokes, currentTime, isPlaying, easing, strokeDuration, strokeGap, characterGap, speedMultiplier, width, height, invertColors]);
 
   return (
     <canvas

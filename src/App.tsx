@@ -62,6 +62,15 @@ function PlayIcon() {
   );
 }
 
+function InvertIcon() {
+  return (
+    <svg className="block size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 24 24">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" fill="var(--fill-0, #4F378A)" />
+      <path d="M12 4c-4.41 0-8 3.59-8 8s3.59 8 8 8V4z" fill="var(--fill-0, #4F378A)" />
+    </svg>
+  );
+}
+
 // Control button component
 function ControlButton({ 
   icon, 
@@ -108,6 +117,9 @@ export default function App() {
   
   // Animation speed control (1x to 4x)
   const [speedMultiplier, setSpeedMultiplier] = useState(1);
+  
+  // Color inversion control
+  const [invertColors, setInvertColors] = useState(false);
   
   // Saved data for debug display
   const [savedData, setSavedData] = useState<any>(null);
@@ -385,6 +397,11 @@ export default function App() {
     setIsPlaying(false);
   }, []);
 
+  // Toggle color inversion
+  const handleToggleInvert = useCallback(() => {
+    setInvertColors(prev => !prev);
+  }, []);
+
   // Reset character index when text changes
   const handleTextChange = useCallback((rawText: string) => {
     const sanitizedText = rawText;
@@ -590,12 +607,17 @@ export default function App() {
 
         {/* Animation Player Section */}
         <div className="bg-[#eeeeee] rounded-lg overflow-hidden relative h-[400px]">
-          {/* Play/Pause Button */}
-          <div className="absolute top-4 left-4 z-10">
+          {/* Control Buttons */}
+          <div className="absolute top-4 left-4 z-10 flex gap-3">
             <ControlButton 
               icon={<PlayIcon />} 
               onClick={handlePlay} 
               ariaLabel={isPlaying ? "Pause animation" : "Play animation"}
+            />
+            <ControlButton 
+              icon={<InvertIcon />} 
+              onClick={handleToggleInvert} 
+              ariaLabel={invertColors ? "Disable color inversion" : "Enable color inversion"}
             />
           </div>
 
@@ -615,6 +637,7 @@ export default function App() {
               easing="easeInOut"
               width={800}
               height={400}
+              invertColors={invertColors}
             />
           </div>
         </div>
