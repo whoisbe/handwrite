@@ -314,7 +314,7 @@ Use Catmull–Rom interpolation:
 * All glyphs for the font
 * Multiple pens or pressure-based brushes
 * ML stroke prediction
-* User-facing stroke library or cloud sync
+* User-facing stroke library or cloud sync (Removed in local-only version)
 
 ### MVP Delivers
 

@@ -5,7 +5,7 @@ A React + TypeScript application for creating realistic handwriting-style text a
 ![Handwrite](https://img.shields.io/badge/React-18.3.1-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
 ![Vite](https://img.shields.io/badge/Vite-6.5.5-646CFF)
-![Supabase](https://img.shields.io/badge/Supabase-Backend-green)
+
 
 ## 🎯 Overview
 
@@ -15,7 +15,7 @@ Handwrite enables users to create handwriting-style animations by:
 2. **Tracing letter paths** by placing dots along the desired writing trajectory
 3. **Auto-generating smooth splines** from those dots using Catmull-Rom interpolation
 4. **Previewing animations** that reveal text progressively along the stroke paths
-5. **Saving and syncing** stroke data with hybrid persistence (localStorage + Supabase)
+5. **Saving** stroke data locally to your browser
 
 Perfect for creating engaging text animations, educational content, or artistic handwriting effects.
 
@@ -28,7 +28,7 @@ Perfect for creating engaging text animations, educational content, or artistic 
 - **Mask-based Animation**: Text reveals progressively following your stroke paths with brush-like effects
 - **Full Word Animation**: Animate entire words with proper character spacing and sequencing
 - **Speed Control**: Adjustable animation speed multiplier (1x to 4x)
-- **Offline Capability**: Hybrid persistence with instant local saves and background cloud sync
+- **Local Persistence**: Instant local saves to localStorage
 
 ### Font Support
 Currently supports 6 handwriting fonts:
@@ -46,16 +46,14 @@ Currently supports 6 handwriting fonts:
 - **Visual Feedback**: Numbered dots, color-coded strokes, and hover previews
 
 ### Data Persistence
-- **Hybrid Storage**: Immediate saves to localStorage + background sync to Supabase
-- **Version Control**: Tracked stroke sets with version history
-- **Cross-device Sync**: Access your strokes from any device once synced
-- **Automatic Retry**: Failed syncs stay in queue and retry automatically
+- **Local Storage**: All data is saved directly to your browser's localStorage
+- **Privacy Focused**: No data leaves your device
+- **Instant Save**: Strokes are saved immediately upon checking
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Node.js 18+ and npm
-- A Supabase project (for cloud persistence - optional)
 
 ### Installation
 
@@ -70,22 +68,12 @@ Currently supports 6 handwriting fonts:
    npm install
    ```
 
-3. **Set up Supabase (optional)**
-   
-   If you want cloud persistence, create a `.env` file in the root directory:
-   ```env
-   VITE_SUPABASE_URL=your_supabase_project_url
-   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-   ```
-   
-   See `supabase_policies.sql` for required database schema.
-
-4. **Start the development server**
+3. **Start the development server**
    ```bash
    npm run dev
    ```
 
-5. **Open your browser**
+4. **Open your browser**
    
    Navigate to `http://localhost:5173` (or the port shown in your terminal)
 
@@ -118,7 +106,7 @@ The built files will be in the `build/` directory.
 - **↶ Undo**: Remove the last dot or last completed stroke
 - **⊗ Clear**: Reset all strokes for the current character
 - **▶| Step Forward**: Complete current stroke and move to next character
-- **✓ Check**: Save all strokes (syncs to localStorage immediately, then Supabase)
+- **✓ Check**: Save all strokes locally
 - **▶ Play**: Start/stop animation playback
 - **Speed Slider**: Adjust animation speed (1x to 4x)
 
@@ -146,9 +134,10 @@ The built files will be in the `build/` directory.
 
 ### Data Layer
 
-- **`hybridPersistence.ts`**: Hybrid storage with localStorage + Supabase sync
-- **`tracesRepository.ts`**: Supabase data access layer
-- **`deviceId.ts`**: Unique device identification for sync tracking
+### Data Layer
+
+- **`hybridPersistence.ts`**: Local storage wrapper (tracesRepository and supabaseClient removed in local-only version)
+- **`deviceId.ts`**: Unique device identification
 
 ### Project Structure
 
@@ -160,8 +149,6 @@ src/
 │   └── ui/                        # Reusable UI components
 ├── lib/
 │   ├── hybridPersistence.ts      # Storage layer
-│   ├── tracesRepository.ts       # Supabase repository
-│   └── supabaseClient.ts         # Supabase configuration
 ├── utils/
 │   ├── spline.ts                 # Spline algorithms
 │   ├── easing.ts                 # Animation easing
@@ -208,8 +195,7 @@ interface Stroke {
 ### Debug Features
 
 The app includes a debug section with:
-- Sync status monitoring
-- Manual sync trigger
+
 - localStorage inspection
 - Saved data JSON export
 
@@ -227,7 +213,7 @@ This project is private and not licensed for public use.
 
 - Original Figma design: [Font Picker and Canvas](https://www.figma.com/design/SVFM4J5Pfe7RiKYUZkBKc0/Font-Picker-and-Canvas)
 - Fonts provided by Google Fonts
-- Built with React, TypeScript, Vite, and Supabase
+- Built with React, TypeScript, and Vite
 
 ## 🔮 Future Enhancements
 

@@ -103,8 +103,8 @@ A React + TypeScript app for creating handwriting-style text animations. Users t
 
 ### Data Storage
 - Per-character strokes stored in `characterStrokes` object keyed by index
-- **Persistence**: Supabase-backed repository (`src/lib/tracesRepository.ts`) with versioned `stroke_sets` table
-- **Local hydration**: Async fetch on font/text change; saves batch via `Promise.all` on Check
+- **Persistence**: LocalStorage-backed repository (`src/lib/hybridPersistence.ts`)
+- **Local hydration**: Loads from localStorage on startup
 - Export format:
 ```json
 {
@@ -140,7 +140,7 @@ A React + TypeScript app for creating handwriting-style text animations. Users t
 ✅ JSON export with debug display
 ✅ Play/pause animation controls
 ✅ Animation speed slider (1x-4x multiplier)
-✅ **Supabase persistence** - strokes survive sessions and fonts
+✅ **Local persistence** - strokes survive sessions via localStorage
 
 ---
 
@@ -275,63 +275,7 @@ Users can now control playback speed from **1x to 4x** using a Radix-based slide
 
 ---
 
-## ✅ Completed Feature: Supabase Persistence Integration
 
-### Implementation Summary
-Stroke data now persists in Supabase (managed Postgres) rather than localStorage, enabling cross-session glyph reuse, versioning, and future multi-user workflows.
-
-### What Was Implemented
-
-1. **Supabase Client Setup** ✅
-   - **`src/lib/supabaseClient.ts`**: Configured Supabase client using environment variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-   - Session persistence enabled for future authentication flows.
-   - Validates required env vars at runtime to prevent silent failures.
-
-2. **Repository Layer** ✅
-   - **`src/lib/tracesRepository.ts`**: Encapsulates all Supabase interactions.
-   - **Font management**: `getOrCreateFont()` slugifies font names and lazily inserts missing `fonts` rows with in-memory cache.
-   - **Glyph resolution**: `getGlyph()` caches glyph IDs and creates entries on-demand when saving strokes.
-   - **Fetch logic**: `fetchGlyphStrokes()` queries the latest approved `stroke_sets` for a given font+character, returning `Stroke[]` or `undefined`.
-   - **Save logic**: `saveGlyphStrokes()` auto-increments version, inserts a new `stroke_sets` row with status `approved`, and updates `glyphs.current_stroke_set_id`.
-   - Graceful error handling with console logs for diagnostics.
-
-3. **App Integration** ✅
-   - **`src/App.tsx`** now imports `fetchGlyphStrokes` and `saveGlyphStrokes` instead of localStorage helpers.
-   - **Async hydration**: `hydratePersistedStrokes()` fetches missing characters in parallel, only populating empty slots to avoid overwriting in-progress edits.
-   - **Character refs**: `characterStrokesRef` tracks latest state to prevent race conditions during async loads.
-   - **Save flow**: `handleCheck` became async, batching all glyph saves via `Promise.all`, then refreshing state from Supabase.
-   - **Font/text changes**: Trigger async re-fetch to pull approved strokes when user selects a new font or edits input text.
-
-4. **Schema Design** ✅
-   - **`fonts`**: `id (uuid)`, `slug (text, unique)`, `display_name (text)`
-   - **`glyphs`**: `id (uuid)`, `font_id (uuid FK)`, `unicode_codepoint (text)`, `current_stroke_set_id (uuid FK, nullable)`
-   - **`stroke_sets`**: `id (uuid)`, `glyph_id (uuid FK)`, `version (int)`, `status (text)`, `strokes (jsonb)`, `created_by (uuid, nullable)`, `created_at (timestamptz)`
-   - Composite unique constraint on `(glyph_id, version)` enforces version integrity.
-
-5. **Removed Legacy Code** ✅
-   - Deleted `src/utils/persistence.ts` to prevent confusion between localStorage and Supabase paths.
-
-6. **Build Verification** ✅
-   - Production build passes: `npm run build` emits `build/assets/index-B-VzyYZE.js` (454.83 kB gzipped to 137.92 kB).
-   - Commit `feat: wire Supabase traces` on branch `feature/supabase-integration`.
-
-### User Flow
-1. User types a character (e.g., "A") and traces strokes.
-2. On font change or text edit, app fetches approved strokes from Supabase if no local edits exist.
-3. Clicking ✓ Check saves all character strokes to Supabase as new versioned `stroke_sets` rows, then refreshes UI from server.
-4. Next session (or new font selection) auto-loads previously saved glyphs.
-
-### Edge Cases Handled
-✅ Missing env vars throw descriptive errors at startup.  
-✅ Network failures log to console and show user-facing alerts during save.  
-✅ Parallel fetches deduplicate via character index checks.  
-✅ Auto-increment version prevents collisions when multiple users save the same glyph (optimistic locking).  
-✅ Empty or zero-length stroke arrays skip save to avoid cluttering DB.
-
-### Testing Readiness
-- ✅ App builds successfully.
-- ⚠️ **Requires manual setup**: Populate `.env.local` with Supabase credentials and ensure tables exist with RLS policies allowing anonymous writes.
-- 📋 **Next step**: Run `npm run dev` and verify strokes persist across sessions.
 
 ### Future Enhancements (Post-MVP)
 - Authentication with user IDs for `created_by` attribution.
