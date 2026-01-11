@@ -5,6 +5,8 @@ import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Button } from "./components/ui/button";
 import { Slider } from "./components/ui/slider";
+import { Toaster } from "./components/ui/sonner";
+import { toast } from "sonner";
 import StrokeEditorCanvas from "./components/StrokeEditorCanvas";
 import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import FontCoverageHeatmap from "./components/FontCoverageHeatmap";
@@ -289,7 +291,7 @@ export default function App() {
 
     const glyphEntries = Object.entries(workingStrokes);
     if (glyphEntries.length === 0) {
-      alert("No strokes to save yet.");
+      toast.info("No strokes to save yet.");
       return;
     }
 
@@ -334,7 +336,7 @@ export default function App() {
     });
 
     if (!localSaveSuccess) {
-      alert("Failed to save strokes locally. Please check your browser storage.");
+      toast.error("Failed to save strokes locally. Please check your browser storage.");
       return;
     }
 
@@ -362,7 +364,7 @@ export default function App() {
     setSavedData(savedOutput);
 
     // Show success message immediately
-    alert(`✓ Saved strokes for "${inputText}" locally!`);
+    toast.success(`Saved strokes for "${inputText}" locally!`);
 
     // Refresh coverage heatmap
     setCoverageRefreshTrigger(prev => prev + 1);
@@ -376,7 +378,7 @@ export default function App() {
   // Toggle playback
   const handlePlay = useCallback(() => {
     if (strokes.length === 0) {
-      alert("Please create at least one stroke first");
+      toast.info("Please create at least one stroke first");
       return;
     }
     setIsPlaying(prev => !prev);
@@ -391,6 +393,57 @@ export default function App() {
   const handleToggleInvert = useCallback(() => {
     setInvertColors(prev => !prev);
   }, []);
+
+  // Handle character selection from heatmap
+  const handleCharacterSelect = useCallback(async (selectedChar: string) => {
+    // Discard current in-progress stroke (do NOT auto-save it via handleCheck)
+    setCurrentStroke([]);
+
+    // Auto-save only the already-completed strokes if any exist
+    // We don't call handleCheck() here because it would save the discarded stroke due to closure
+    // The completed strokes are already saved in characterStrokes state
+
+    // Find if character exists in inputText
+    const existingIndex = inputText.indexOf(selectedChar);
+    
+    if (existingIndex !== -1) {
+      // Character exists - navigate to it
+      setCurrentCharIndex(existingIndex);
+    } else {
+      // Character doesn't exist - add it
+      if (inputText.length < 6) {
+        // Append to text
+        const newText = inputText + selectedChar;
+        setInputText(newText);
+        setCurrentCharIndex(newText.length - 1);
+        await hydratePersistedStrokes(newText, selectedFont);
+      } else {
+        // Text is full - replace at current position
+        const chars = Array.from(inputText);
+        const oldChar = chars[currentCharIndex];
+        const indexToKeep = currentCharIndex;
+        chars[indexToKeep] = selectedChar;
+        const newText = chars.join('');
+        setInputText(newText);
+        
+        // Clear strokes at current position since the character changed
+        // (hydratePersistedStrokes skips indices that already have strokes)
+        if (oldChar !== selectedChar) {
+          setCharacterStrokes(prev => {
+            const next = { ...prev };
+            delete next[indexToKeep];
+            return next;
+          });
+        }
+        
+        // Keep same index, now pointing to new character
+        setCurrentCharIndex(indexToKeep);
+        await hydratePersistedStrokes(newText, selectedFont);
+      }
+    }
+    
+    setIsPlaying(false);
+  }, [characterStrokes, currentCharIndex, inputText, selectedFont, handleCheck, hydratePersistedStrokes]);
 
   // Handle color picker change
   const handleColorChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -449,6 +502,7 @@ export default function App() {
 
   return (
     <div className="bg-white min-h-screen p-6">
+      <Toaster position="top-right" richColors />
       {/* Header */}
       <header className="text-center mb-8">
         <h1 className="font-['Nanum_Brush_Script',sans-serif] text-[40px] text-black">
@@ -480,6 +534,8 @@ export default function App() {
             <FontCoverageHeatmap
               fontFamily={selectedFont}
               coverage={fontCoverage}
+              onCharacterClick={handleCharacterSelect}
+              currentChar={currentChar}
             />
           </div>
         </div>
@@ -668,10 +724,10 @@ export default function App() {
                     console.log("Status:", status ? JSON.parse(status) : null);
 
                     const queueData = syncQueue ? JSON.parse(syncQueue) : [];
-                    alert(`localStorage Contents:\n\nSync Queue: ${queueData.length} items\nTraces: ${traces ? 'Present' : 'Empty'}\n\nSee console for details`);
+                    toast.info(`localStorage: ${queueData.length} items in queue, traces ${traces ? 'present' : 'empty'}. See console for details.`);
                   } catch (error) {
                     console.error("Error reading localStorage:", error);
-                    alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
+                    toast.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
                   }
                 }}
                 className="w-full px-3 py-2 bg-gray-500 text-white text-sm rounded hover:bg-gray-600"

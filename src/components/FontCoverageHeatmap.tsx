@@ -6,6 +6,7 @@ interface FontCoverageHeatmapProps {
   fontFamily: string;
   coverage: Record<string, boolean>;
   onCharacterClick?: (char: string) => void;
+  currentChar?: string;
 }
 
 // Alphanumeric layout: uppercase, lowercase, numbers
@@ -48,7 +49,8 @@ function calculateCoveragePercentage(coverage: Record<string, boolean>): number 
 export default function FontCoverageHeatmap({
   fontFamily,
   coverage,
-  onCharacterClick
+  onCharacterClick,
+  currentChar
 }: FontCoverageHeatmapProps) {
   const coveragePercentage = useMemo(() => calculateCoveragePercentage(coverage), [coverage]);
 
@@ -75,6 +77,7 @@ export default function FontCoverageHeatmap({
           >
             {row.map((char) => {
               const isAvailable = coverage[char] ?? false;
+              const isActive = currentChar === char;
               return (
                 <Tooltip key={char}>
                   <TooltipTrigger asChild>
@@ -89,18 +92,20 @@ export default function FontCoverageHeatmap({
                         fontSize: '0.875rem',
                         fontWeight: 500,
                         transition: 'all 0.2s ease-in-out',
-                        border: '1px solid',
+                        border: isActive ? '3px solid #ff1493' : '1px solid',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                        boxShadow: isActive 
+                          ? '0 0 0 3px rgba(255, 20, 147, 0.3), 0 1px 2px 0 rgba(0, 0, 0, 0.05)'
+                          : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
                         userSelect: 'none',
                         cursor: onCharacterClick ? 'pointer' : 'default',
                         background: isAvailable 
                           ? 'linear-gradient(to bottom right, #34d399, #10b981)' 
                           : '#f3f4f6',
                         color: isAvailable ? '#ffffff' : '#6b7280',
-                        borderColor: isAvailable ? '#059669' : '#d1d5db',
+                        borderColor: isActive ? '#ff1493' : (isAvailable ? '#059669' : '#d1d5db'),
                       }}
                       onMouseEnter={(e) => {
                         if (isAvailable) {
