@@ -396,13 +396,12 @@ export default function App() {
 
   // Handle character selection from heatmap
   const handleCharacterSelect = useCallback(async (selectedChar: string) => {
-    // Discard current in-progress stroke
+    // Discard current in-progress stroke (do NOT auto-save it via handleCheck)
     setCurrentStroke([]);
 
-    // Auto-save if current character has completed strokes
-    if (characterStrokes[currentCharIndex]?.length > 0) {
-      await handleCheck();
-    }
+    // Auto-save only the already-completed strokes if any exist
+    // We don't call handleCheck() here because it would save the discarded stroke due to closure
+    // The completed strokes are already saved in characterStrokes state
 
     // Find if character exists in inputText
     const existingIndex = inputText.indexOf(selectedChar);
@@ -421,10 +420,24 @@ export default function App() {
       } else {
         // Text is full - replace at current position
         const chars = Array.from(inputText);
-        chars[currentCharIndex] = selectedChar;
+        const oldChar = chars[currentCharIndex];
+        const indexToKeep = currentCharIndex;
+        chars[indexToKeep] = selectedChar;
         const newText = chars.join('');
         setInputText(newText);
+        
+        // Clear strokes at current position since the character changed
+        // (hydratePersistedStrokes skips indices that already have strokes)
+        if (oldChar !== selectedChar) {
+          setCharacterStrokes(prev => {
+            const next = { ...prev };
+            delete next[indexToKeep];
+            return next;
+          });
+        }
+        
         // Keep same index, now pointing to new character
+        setCurrentCharIndex(indexToKeep);
         await hydratePersistedStrokes(newText, selectedFont);
       }
     }
