@@ -149,6 +149,11 @@ export default function App() {
   // Get actual font coverage from localStorage
   const fontCoverage = useMemo(() => getFontCoverage(selectedFont), [selectedFont, coverageRefreshTrigger]);
 
+  // Check if export is available (at least 1 character has strokes)
+  const hasExportableStrokes = useMemo(() => {
+    return Object.keys(getAllStrokesForFont(selectedFont)).length > 0;
+  }, [selectedFont, coverageRefreshTrigger]);
+
   // Import dialog state
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importData, setImportData] = useState<any>(null);
@@ -692,7 +697,7 @@ export default function App() {
                 ))}
               </SelectContent>
             </Select>
-            
+            !hasExportableStrokes
             {/* Export/Import Controls */}
             <div className="flex gap-2 pt-2">
               <Button
