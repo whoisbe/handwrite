@@ -668,6 +668,11 @@ export default function App() {
     void hydrate();
   }, [selectedFont, hydratePersistedStrokes]);
 
+  // Trigger coverage refresh on mount to enable export button if data exists
+  useEffect(() => {
+    setCoverageRefreshTrigger(prev => prev + 1);
+  }, []);
+
   return (
     <div className="bg-white min-h-screen p-6">
       <Toaster position="top-right" richColors />
