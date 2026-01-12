@@ -22,12 +22,13 @@ import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import FontCoverageHeatmap from "./components/FontCoverageHeatmap";
 import { Stroke } from "./types/stroke";
 import { Point, generateCatmullRomSpline, getCumulativeDistances } from "./utils/spline";
-import { downloadJSON, uploadJSON, getAllStrokesForFont } from "./utils/persistence";
+import { downloadJSON, uploadJSON } from "./utils/persistence";
 import {
   saveGlyphStrokesLocal,
   fetchAndHydrateStrokes,
   loadGlyphStrokesWithMetadata,
-  getFontCoverage
+  getFontCoverage,
+  getAllStrokesForFont
 } from "./lib/hybridPersistence";
 
 // Canvas control button icons

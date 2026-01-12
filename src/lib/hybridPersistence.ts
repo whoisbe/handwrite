@@ -241,3 +241,31 @@ export function getFontCoverage(font: string): Record<string, boolean> {
     return {};
   }
 }
+
+// Get all strokes for a font (used for export)
+export function getAllStrokesForFont(font: string): Record<string, Stroke[]> {
+  if (!font) return {};
+
+  try {
+    const store = readStore();
+    const fontBucket = store[font];
+    
+    if (!fontBucket) return {};
+
+    const result: Record<string, Stroke[]> = {};
+    
+    Object.keys(fontBucket).forEach(char => {
+      const data = fontBucket[char];
+      if (data?.strokes?.length) {
+        // Deep clone the strokes
+        result[char] = JSON.parse(JSON.stringify(data.strokes));
+      }
+    });
+    
+    return result;
+  } catch (error) {
+    console.error("Failed to get all strokes for font", error);
+    return {};
+  }
+}
+
