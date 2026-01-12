@@ -7,16 +7,28 @@ import { Button } from "./components/ui/button";
 import { Slider } from "./components/ui/slider";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
 import StrokeEditorCanvas from "./components/StrokeEditorCanvas";
 import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import FontCoverageHeatmap from "./components/FontCoverageHeatmap";
 import { Stroke } from "./types/stroke";
 import { Point, generateCatmullRomSpline, getCumulativeDistances } from "./utils/spline";
+import { downloadJSON, uploadJSON } from "./utils/persistence";
 import {
   saveGlyphStrokesLocal,
   fetchAndHydrateStrokes,
   loadGlyphStrokesWithMetadata,
-  getFontCoverage
+  getFontCoverage,
+  getAllStrokesForFont
 } from "./lib/hybridPersistence";
 
 // Canvas control button icons
@@ -137,6 +149,17 @@ export default function App() {
 
   // Get actual font coverage from localStorage
   const fontCoverage = useMemo(() => getFontCoverage(selectedFont), [selectedFont, coverageRefreshTrigger]);
+
+  // Check if export is available (at least 1 character has strokes)
+  const hasExportableStrokes = useMemo(() => {
+    return Object.keys(getAllStrokesForFont(selectedFont)).length > 0;
+  }, [selectedFont, coverageRefreshTrigger]);
+
+  // Import dialog state
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importData, setImportData] = useState<any>(null);
+  const [conflictingChars, setConflictingChars] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const latestTextRef = useRef(inputText);
   const colorPickerInputRef = useRef<HTMLInputElement>(null);
@@ -451,6 +474,152 @@ export default function App() {
     setTextColor(color || null);
   }, []);
 
+  // Handle Export
+  const handleExport = useCallback(() => {
+    const allStrokes = getAllStrokesForFont(selectedFont);
+    const charCount = Object.keys(allStrokes).length;
+    
+    if (charCount === 0) {
+      toast.info("No strokes to export for this font");
+      return;
+    }
+
+    // Prepare export data with metadata
+    const exportData = {
+      version: 1,
+      fontFamily: selectedFont,
+      glyphs: Object.entries(allStrokes).map(([char, strokes]) => ({
+        char,
+        strokes: strokes.map(s => ({
+          id: s.id,
+          dots: s.dots,
+          order: s.order
+        }))
+      })),
+      exportDate: new Date().toISOString(),
+      exportedBy: "handwrite-app"
+    };
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filename = `${selectedFont.replace(/\s+/g, '-')}-strokes-${timestamp}.json`;
+    
+    downloadJSON(exportData, filename);
+    toast.success(`Exported ${charCount} character${charCount > 1 ? 's' : ''} for ${selectedFont}`);
+  }, [selectedFont]);
+
+  // Handle Import file selection
+  const handleImportFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const data = await uploadJSON(file);
+      
+      // Validate JSON structure
+      if (!data.version || !data.fontFamily || !Array.isArray(data.glyphs)) {
+        toast.error("Invalid stroke data file format");
+        return;
+      }
+
+      // Check if the font exists in available fonts
+      const importedFont = data.fontFamily;
+      if (!fonts.includes(importedFont)) {
+        toast.error(`Font "${importedFont}" is not available in this app`);
+        return;
+      }
+
+      // Detect conflicts (characters that will be overwritten)
+      const existingStrokes = getAllStrokesForFont(importedFont);
+      const conflicts: string[] = [];
+      
+      data.glyphs.forEach((glyph: any) => {
+        if (existingStrokes[glyph.char]?.length > 0) {
+          conflicts.push(glyph.char);
+        }
+      });
+
+      setImportData(data);
+      setConflictingChars(conflicts);
+      setImportDialogOpen(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to read file");
+    } finally {
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, [fonts]);
+
+  // Confirm Import
+  const handleConfirmImport = useCallback(async () => {
+    if (!importData) return;
+
+    try {
+      const importedFont = importData.fontFamily;
+      let importedCount = 0;
+
+      // Process each glyph
+      for (const glyph of importData.glyphs) {
+        if (!glyph.char || !Array.isArray(glyph.strokes)) continue;
+
+        // Reconstruct strokes with spline data
+        const reconstructedStrokes: Stroke[] = glyph.strokes.map((s: any) => {
+          const splinePoints = generateCatmullRomSpline(s.dots);
+          const cumulativeDistances = getCumulativeDistances(splinePoints);
+          
+          return {
+            id: s.id,
+            dots: s.dots,
+            splinePoints,
+            cumulativeDistances,
+            order: s.order
+          };
+        });
+
+        // Save to localStorage
+        const success = saveGlyphStrokesLocal(importedFont, glyph.char, reconstructedStrokes, {
+          isLocalEdit: false // Mark as imported, not user-created
+        });
+
+        if (success) importedCount++;
+      }
+
+      // Refresh coverage heatmap
+      setCoverageRefreshTrigger(prev => prev + 1);
+
+      // If imported font matches current font, reload current character's strokes if it was imported
+      if (importedFont === selectedFont) {
+        const currentCharData = importData.glyphs.find((g: any) => g.char === currentChar);
+        if (currentCharData) {
+          const reloadedStrokes = await fetchAndHydrateStrokes(selectedFont, currentChar);
+          if (reloadedStrokes) {
+            setCharacterStrokes(prev => ({
+              ...prev,
+              [currentCharIndex]: reloadedStrokes
+            }));
+            setCurrentStroke([]);
+          }
+        }
+      }
+
+      toast.success(`Imported ${importedCount} character${importedCount > 1 ? 's' : ''} for ${importedFont}`);
+      setImportDialogOpen(false);
+      setImportData(null);
+      setConflictingChars([]);
+    } catch (error) {
+      toast.error("Failed to import strokes");
+      console.error("Import error:", error);
+    }
+  }, [importData, selectedFont, currentChar, currentCharIndex]);
+
+  // Cancel Import
+  const handleCancelImport = useCallback(() => {
+    setImportDialogOpen(false);
+    setImportData(null);
+    setConflictingChars([]);
+  }, []);
+
   // Reset character index when text changes
   const handleTextChange = useCallback((rawText: string) => {
     const sanitizedText = rawText;
@@ -500,6 +669,11 @@ export default function App() {
     void hydrate();
   }, [selectedFont, hydratePersistedStrokes]);
 
+  // Trigger coverage refresh on mount to enable export button if data exists
+  useEffect(() => {
+    setCoverageRefreshTrigger(prev => prev + 1);
+  }, []);
+
   return (
     <div className="bg-white min-h-screen p-6">
       <Toaster position="top-right" richColors />
@@ -529,6 +703,34 @@ export default function App() {
                 ))}
               </SelectContent>
             </Select>
+            
+            {/* Export/Import Controls */}
+            <div className="flex gap-2 pt-2">
+              <Button
+                onClick={handleExport}
+                disabled={!hasExportableStrokes}
+                variant="outline"
+                size="sm"
+                className="flex-1"
+              >
+                Export Font
+              </Button>
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                variant="outline"
+                size="sm"
+                className="flex-1"
+              >
+                Import Font
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleImportFileSelect}
+                style={{ display: 'none' }}
+              />
+            </div>
           </div>
           <div style={{ flex: '0 0 auto', minWidth: '1080px' }}>
             <FontCoverageHeatmap
@@ -749,6 +951,48 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* Import Confirmation Dialog */}
+      <AlertDialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Import Stroke Data</AlertDialogTitle>
+            <AlertDialogDescription>
+              {importData && (
+                <div className="space-y-3">
+                  <p>
+                    You are about to import <strong>{importData.glyphs?.length || 0} character(s)</strong> for font{' '}
+                    <strong>{importData.fontFamily}</strong>.
+                  </p>
+                  
+                  {conflictingChars.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded p-3">
+                      <p className="font-semibold text-amber-900 mb-2">
+                        ⚠️ The following {conflictingChars.length} character(s) will be overwritten:
+                      </p>
+                      <p className="text-sm text-amber-800 font-mono">
+                        {conflictingChars.join(', ')}
+                      </p>
+                    </div>
+                  )}
+                  
+                  <p className="text-sm text-gray-600">
+                    {conflictingChars.length > 0
+                      ? 'Existing strokes for these characters will be replaced. This action cannot be undone.'
+                      : 'New strokes will be added for these characters.'}
+                  </p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelImport}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmImport}>
+              {conflictingChars.length > 0 ? 'Overwrite & Import' : 'Import'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

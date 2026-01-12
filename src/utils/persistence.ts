@@ -102,3 +102,68 @@ export function loadStrokesForGlyph(font: string, character: string): Stroke[] |
 
   return cloneStrokes(stored);
 }
+
+// File download/upload utilities for export/import functionality
+
+/**
+ * Downloads data as a JSON file
+ */
+export function downloadJSON(data: any, filename: string) {
+  const dataStr = JSON.stringify(data, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Reads and parses JSON file from user upload
+ * Returns a promise that resolves with parsed JSON data
+ */
+export function uploadJSON(file: File): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        resolve(data);
+      } catch (error) {
+        reject(new Error('Invalid JSON file'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
+  });
+}
+
+/**
+ * Gets all characters with strokes for a given font
+ */
+export function getAllStrokesForFont(font: string): Record<string, Stroke[]> {
+  if (!font) {
+    return {};
+  }
+
+  const store = readStore();
+  const fontBucket = store[font];
+  
+  if (!fontBucket) {
+    return {};
+  }
+
+  const result: Record<string, Stroke[]> = {};
+  
+  Object.keys(fontBucket).forEach(char => {
+    const strokes = fontBucket[char];
+    if (strokes?.length) {
+      result[char] = cloneStrokes(strokes);
+    }
+  });
+  
+  return result;
+}
