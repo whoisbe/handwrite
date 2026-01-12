@@ -697,12 +697,12 @@ export default function App() {
                 ))}
               </SelectContent>
             </Select>
-            !hasExportableStrokes
+            
             {/* Export/Import Controls */}
             <div className="flex gap-2 pt-2">
               <Button
                 onClick={handleExport}
-                disabled={Object.keys(getAllStrokesForFont(selectedFont)).length === 0}
+                disabled={!hasExportableStrokes}
                 variant="outline"
                 size="sm"
                 className="flex-1"
