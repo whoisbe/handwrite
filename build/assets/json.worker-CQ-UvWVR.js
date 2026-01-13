@@ -1,1 +1,0 @@
-(function(){"use strict";self.onmessage=async t=>{const e=t.data;if(!e){self.postMessage({error:"No file provided"});return}try{const s=await e.text(),r=JSON.parse(s);self.postMessage({data:r})}catch{self.postMessage({error:"Failed to parse JSON"})}}})();
