@@ -192,6 +192,24 @@ export function getAllStrokesForFont(font: string): Record<string, Stroke[]> {
   return result;
 }
 
+/**
+ * Clears all stroke data for a specific font
+ */
+export function clearStrokesForFont(font: string): void {
+  if (!font) return;
+
+  try {
+    const store = readStore();
+    if (store[font]) {
+      delete store[font];
+      writeStore(store);
+      console.log(`Cleared all strokes for font: ${font}`);
+    }
+  } catch (error) {
+    console.error(`Failed to clear strokes for font ${font}`, error);
+  }
+}
+
 // File download/upload utilities for export/import functionality
 
 /**

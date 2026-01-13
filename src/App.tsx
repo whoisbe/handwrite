@@ -1,12 +1,8 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import svgPaths from "./imports/svg-x7f6vq0myw";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
-import { Input } from "./components/ui/input";
-import { Label } from "./components/ui/label";
-import { Button } from "./components/ui/button";
-import { Slider } from "./components/ui/slider";
-import { Toaster } from "./components/ui/sonner";
-import { toast } from "sonner";
+import { CustomSelect } from "./components/ui-custom/CustomSelect";
+import { CustomSlider } from "./components/ui-custom/CustomSlider";
+import { Toaster, toast } from "sonner";
 import StrokeEditorCanvas from "./components/StrokeEditorCanvas";
 import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import FontCoverageHeatmap from "./components/FontCoverageHeatmap";
@@ -18,7 +14,8 @@ import {
   persistGlyphStrokes,
   loadStrokesForGlyph,
   getFontCoverage,
-  getAllStrokesForFont
+  getAllStrokesForFont,
+  clearStrokesForFont
 } from "./utils/persistence";
 
 // Canvas control button icons
@@ -467,6 +464,27 @@ export default function App() {
     toast.success(`Exported ${charCount} character${charCount > 1 ? 's' : ''} for ${selectedFont}`);
   }, [selectedFont]);
 
+  // Handle Clear Font Strokes
+  const handleClearFontStrokes = useCallback(() => {
+    if (!hasExportableStrokes) return;
+
+    // Custom confirmation via window.confirm (simple) or we could use Sonner toast with action
+    if (window.confirm(`Are you sure you want to clear ALL strokes for "${selectedFont}"? This cannot be undone.`)) {
+      clearStrokesForFont(selectedFont);
+
+      // Reset state
+      setCharacterStrokes({});
+      setCurrentStroke([]);
+      setCurrentCharIndex(0);
+      setIsPlaying(false);
+
+      // Force refresh of heatmap
+      setCoverageRefreshTrigger(prev => prev + 1);
+
+      toast.success(`Cleared all strokes for ${selectedFont}`);
+    }
+  }, [selectedFont, hasExportableStrokes]);
+
   // Handle Import file selection
   const handleImportFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -634,40 +652,39 @@ export default function App() {
         {/* Font Selector with Heatmap */}
         <div style={{ display: 'flex', flexDirection: 'row', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div className="space-y-2" style={{ flex: '0 0 auto', minWidth: '240px' }}>
-            <Label htmlFor="font-select">Font</Label>
-            <Select value={selectedFont} onValueChange={setSelectedFont}>
-              <SelectTrigger id="font-select" className="w-full">
-                <SelectValue placeholder="Select a font" />
-              </SelectTrigger>
-              <SelectContent>
-                {fonts.map((font) => (
-                  <SelectItem key={font} value={font}>
-                    {font}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <label htmlFor="font-select" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Font</label>
+            <CustomSelect
+              value={selectedFont}
+              onValueChange={setSelectedFont}
+              options={fonts.map(f => ({ label: f, value: f }))}
+              placeholder="Select a font"
+              className="w-full"
+            />
 
             {/* Export/Import Controls */}
             <div className="flex gap-2 pt-2">
-              <Button
+              <button
                 onClick={handleExport}
                 disabled={!hasExportableStrokes}
-                variant="outline"
-                size="sm"
-                className="flex-1"
+                className={`flex-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3 ${!hasExportableStrokes ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                Export Font
-              </Button>
-              <Button
+                Export
+              </button>
+              <button
+                onClick={handleClearFontStrokes}
+                disabled={!hasExportableStrokes}
+                className={`flex-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-red-50 hover:text-red-600 hover:border-red-200 h-9 px-3 ${!hasExportableStrokes ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title="Clear all strokes for this font"
+              >
+                Clear
+              </button>
+              <button
                 onClick={() => fileInputRef.current?.click()}
-                variant="outline"
-                size="sm"
-                className="flex-1"
                 disabled={isImporting}
+                className={`flex-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3 ${isImporting ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                {isImporting ? 'Processing...' : 'Import Font'}
-              </Button>
+                {isImporting ? 'Processing...' : 'Import'}
+              </button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -690,10 +707,10 @@ export default function App() {
         {/* Text Input */}
         <div className="space-y-2">
           <div className="flex justify-between items-center">
-            <Label htmlFor="text-input">Text</Label>
+            <label htmlFor="text-input" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Text</label>
             <span className="text-xs text-gray-500">{inputText.length}/6</span>
           </div>
-          <Input
+          <input
             id="text-input"
             type="text"
             value={inputText}
@@ -702,16 +719,16 @@ export default function App() {
               handleTextChange(newValue);
             }}
             placeholder="Enter text to animate"
-            className="w-full"
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             maxLength={6}
           />
         </div>
 
         {/* Speed Control */}
         <div className="space-y-2">
-          <Label>Animation Speed</Label>
+          <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Animation Speed</label>
           <div className="flex items-center gap-3">
-            <Slider
+            <CustomSlider
               value={[speedMultiplier]}
               onValueChange={([value]) => setSpeedMultiplier(value)}
               min={1}

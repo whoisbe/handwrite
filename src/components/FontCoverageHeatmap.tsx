@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
-import { cn } from './ui/utils';
+import { CustomTooltip } from './ui-custom/CustomTooltip';
 
 interface FontCoverageHeatmapProps {
   fontFamily: string;
@@ -25,16 +24,16 @@ export function generateMockCoverage(percentage: number = 0.65): Record<string, 
 
   const totalChars = allChars.length;
   const coveredCount = Math.floor(totalChars * percentage);
-  
+
   // Shuffle and select random characters
   const shuffled = [...allChars].sort(() => Math.random() - 0.5);
   const covered = new Set(shuffled.slice(0, coveredCount));
-  
+
   const coverage: Record<string, boolean> = {};
   allChars.forEach(char => {
     coverage[char] = covered.has(char);
   });
-  
+
   return coverage;
 }
 
@@ -60,17 +59,17 @@ export default function FontCoverageHeatmap({
       <div style={{ fontSize: '0.75rem', color: '#4b5563', fontWeight: 500, textAlign: 'center' }}>
         {coveragePercentage}% coverage
       </div>
-      
+
       {/* Heatmap grid */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
         {KEYBOARD_LAYOUT.map((row, rowIndex) => (
-          <div 
-            key={rowIndex} 
-            style={{ 
-              display: 'flex', 
+          <div
+            key={rowIndex}
+            style={{
+              display: 'flex',
               flexDirection: 'row',
-              gap: '4px', 
-              justifyContent: 'center', 
+              gap: '4px',
+              justifyContent: 'center',
               flexWrap: 'wrap',
               width: '100%'
             }}
@@ -79,66 +78,63 @@ export default function FontCoverageHeatmap({
               const isAvailable = coverage[char] ?? false;
               const isActive = currentChar === char;
               return (
-                <Tooltip key={char}>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => onCharacterClick?.(char)}
-                      style={{
-                        width: '36px',
-                        height: '36px',
-                        minWidth: '36px',
-                        flexShrink: 0,
-                        borderRadius: '4px',
-                        fontSize: '0.875rem',
-                        fontWeight: 500,
-                        transition: 'all 0.2s ease-in-out',
-                        border: isActive ? '3px solid #ff1493' : '1px solid',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: isActive 
-                          ? '0 0 0 3px rgba(255, 20, 147, 0.3), 0 1px 2px 0 rgba(0, 0, 0, 0.05)'
-                          : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-                        userSelect: 'none',
-                        cursor: onCharacterClick ? 'pointer' : 'default',
-                        background: isAvailable 
-                          ? 'linear-gradient(to bottom right, #34d399, #10b981)' 
-                          : '#f3f4f6',
-                        color: isAvailable ? '#ffffff' : '#6b7280',
-                        borderColor: isActive ? '#ff1493' : (isAvailable ? '#059669' : '#d1d5db'),
-                      }}
-                      onMouseEnter={(e) => {
-                        if (isAvailable) {
-                          e.currentTarget.style.background = 'linear-gradient(to bottom right, #10b981, #059669)';
-                        } else {
-                          e.currentTarget.style.background = '#e5e7eb';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (isAvailable) {
-                          e.currentTarget.style.background = 'linear-gradient(to bottom right, #34d399, #10b981)';
-                        } else {
-                          e.currentTarget.style.background = '#f3f4f6';
-                        }
-                      }}
-                      onMouseDown={(e) => {
-                        if (onCharacterClick) {
-                          e.currentTarget.style.transform = 'scale(0.95)';
-                        }
-                      }}
-                      onMouseUp={(e) => {
-                        e.currentTarget.style.transform = 'scale(1)';
-                      }}
-                      aria-label={`Character ${char}: ${isAvailable ? 'Available' : 'Not available'}`}
-                    >
-                      {char}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">{char}: {isAvailable ? 'Available' : 'Not available'}</p>
-                  </TooltipContent>
-                </Tooltip>
+
+                <CustomTooltip key={char} content={`${char}: ${isAvailable ? 'Available' : 'Not available'}`}>
+                  <button
+                    onClick={() => onCharacterClick?.(char)}
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      minWidth: '36px',
+                      flexShrink: 0,
+                      borderRadius: '4px',
+                      fontSize: '0.875rem',
+                      fontWeight: 500,
+                      transition: 'all 0.2s ease-in-out',
+                      border: isActive ? '3px solid #ff1493' : '1px solid',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: isActive
+                        ? '0 0 0 3px rgba(255, 20, 147, 0.3), 0 1px 2px 0 rgba(0, 0, 0, 0.05)'
+                        : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                      userSelect: 'none',
+                      cursor: onCharacterClick ? 'pointer' : 'default',
+                      background: isAvailable
+                        ? 'linear-gradient(to bottom right, #34d399, #10b981)'
+                        : '#f3f4f6',
+                      color: isAvailable ? '#ffffff' : '#6b7280',
+                      borderColor: isActive ? '#ff1493' : (isAvailable ? '#059669' : '#d1d5db'),
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isAvailable) {
+                        e.currentTarget.style.background = 'linear-gradient(to bottom right, #10b981, #059669)';
+                      } else {
+                        e.currentTarget.style.background = '#e5e7eb';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (isAvailable) {
+                        e.currentTarget.style.background = 'linear-gradient(to bottom right, #34d399, #10b981)';
+                      } else {
+                        e.currentTarget.style.background = '#f3f4f6';
+                      }
+                    }}
+                    onMouseDown={(e) => {
+                      if (onCharacterClick) {
+                        e.currentTarget.style.transform = 'scale(0.95)';
+                      }
+                    }}
+                    onMouseUp={(e) => {
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                    aria-label={`Character ${char}: ${isAvailable ? 'Available' : 'Not available'}`}
+                  >
+                    {char}
+                  </button>
+                </CustomTooltip>
               );
+
             })}
           </div>
         ))}
