@@ -7,23 +7,13 @@ import { Button } from "./components/ui/button";
 import { Slider } from "./components/ui/slider";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "./components/ui/alert-dialog";
 import StrokeEditorCanvas from "./components/StrokeEditorCanvas";
 import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import FontCoverageHeatmap from "./components/FontCoverageHeatmap";
 import { Stroke } from "./types/stroke";
 import { Point, generateCatmullRomSpline, getCumulativeDistances } from "./utils/spline";
-import { 
-  downloadJSON, 
+import {
+  downloadJSON,
   uploadJSON,
   persistGlyphStrokes,
   loadStrokesForGlyph,
@@ -155,10 +145,8 @@ export default function App() {
     return Object.keys(getAllStrokesForFont(selectedFont)).length > 0;
   }, [selectedFont, coverageRefreshTrigger]);
 
-  // Import dialog state
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [importData, setImportData] = useState<any>(null);
-  const [conflictingChars, setConflictingChars] = useState<string[]>([]);
+  // Import state
+  const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const latestTextRef = useRef(inputText);
@@ -194,12 +182,12 @@ export default function App() {
 
     const chars = Array.from(text);
     const results = chars.map((char, index) => {
-        if (characterStrokesRef.current[index]?.length) {
-          return null;
-        }
-        const persisted = loadStrokesForGlyph(fontName, char);
-        return persisted?.length ? { index, strokes: persisted } : null;
-      });
+      if (characterStrokesRef.current[index]?.length) {
+        return null;
+      }
+      const persisted = loadStrokesForGlyph(fontName, char);
+      return persisted?.length ? { index, strokes: persisted } : null;
+    });
 
     setCharacterStrokes(prev => {
       let mutated = false;
@@ -400,7 +388,7 @@ export default function App() {
 
     // Find if character exists in inputText
     const existingIndex = inputText.indexOf(selectedChar);
-    
+
     if (existingIndex !== -1) {
       // Character exists - navigate to it
       setCurrentCharIndex(existingIndex);
@@ -420,7 +408,7 @@ export default function App() {
         chars[indexToKeep] = selectedChar;
         const newText = chars.join('');
         setInputText(newText);
-        
+
         // Clear strokes at current position since the character changed
         // (hydratePersistedStrokes skips indices that already have strokes)
         if (oldChar !== selectedChar) {
@@ -430,13 +418,13 @@ export default function App() {
             return next;
           });
         }
-        
+
         // Keep same index, now pointing to new character
         setCurrentCharIndex(indexToKeep);
         await hydratePersistedStrokes(newText, selectedFont);
       }
     }
-    
+
     setIsPlaying(false);
   }, [characterStrokes, currentCharIndex, inputText, selectedFont, handleCheck, hydratePersistedStrokes]);
 
@@ -450,7 +438,7 @@ export default function App() {
   const handleExport = useCallback(() => {
     const allStrokes = getAllStrokesForFont(selectedFont);
     const charCount = Object.keys(allStrokes).length;
-    
+
     if (charCount === 0) {
       toast.info("No strokes to export for this font");
       return;
@@ -474,7 +462,7 @@ export default function App() {
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
     const filename = `${selectedFont.replace(/\s+/g, '-')}-strokes-${timestamp}.json`;
-    
+
     downloadJSON(exportData, filename);
     toast.success(`Exported ${charCount} character${charCount > 1 ? 's' : ''} for ${selectedFont}`);
   }, [selectedFont]);
@@ -484,110 +472,97 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsImporting(true);
+    const loadingToast = toast.loading("Processing font file...");
+
     try {
+      console.log('Starting import for file:', file.name);
       const data = await uploadJSON(file);
-      
+      console.log('JSON parsed successfully:', data);
+
       // Validate JSON structure
       if (!data.version || !data.fontFamily || !Array.isArray(data.glyphs)) {
+        console.error('Validation failed: Invalid JSON structure');
+        toast.dismiss(loadingToast);
         toast.error("Invalid stroke data file format");
         return;
       }
 
       // Check if the font exists in available fonts
       const importedFont = data.fontFamily;
+      console.log('Checking if font exists:', importedFont, 'Available fonts:', fonts);
       if (!fonts.includes(importedFont)) {
+        console.error('Font not found:', importedFont);
+        toast.dismiss(loadingToast);
         toast.error(`Font "${importedFont}" is not available in this app`);
         return;
       }
 
-      // Detect conflicts (characters that will be overwritten)
-      const existingStrokes = getAllStrokesForFont(importedFont);
-      const conflicts: string[] = [];
-      
-      data.glyphs.forEach((glyph: any) => {
-        if (existingStrokes[glyph.char]?.length > 0) {
-          conflicts.push(glyph.char);
-        }
-      });
+      // Start importing directly
+      toast.dismiss(loadingToast);
+      const totalGlyphs = data.glyphs.length;
+      console.log('Starting import of', totalGlyphs, 'glyphs for font:', importedFont);
+      toast.info(`Importing ${totalGlyphs} character${totalGlyphs > 1 ? 's' : ''}...`);
 
-      setImportData(data);
-      setConflictingChars(conflicts);
-      setImportDialogOpen(true);
+      let importedCount = 0;
+
+      // Process glyphs in batches to avoid blocking the UI
+      const batchSize = 10;
+      for (let i = 0; i < data.glyphs.length; i += batchSize) {
+        const batch = data.glyphs.slice(i, i + batchSize);
+
+        // Process batch
+        for (const glyph of batch) {
+          if (!glyph.char || !Array.isArray(glyph.strokes)) {
+            console.warn('Skipping invalid glyph:', glyph);
+            continue;
+          }
+
+          // Reconstruct strokes with spline data
+          const reconstructedStrokes: Stroke[] = glyph.strokes.map((s: any) => {
+            const splinePoints = generateCatmullRomSpline(s.dots);
+            const cumulativeDistances = getCumulativeDistances(splinePoints);
+
+            return {
+              id: s.id,
+              dots: s.dots,
+              splinePoints,
+              cumulativeDistances,
+              order: s.order
+            };
+          });
+
+          // Save to storage
+          await hybridPersistence.saveStrokes(importedFont, glyph.char, reconstructedStrokes);
+          importedCount++;
+        }
+
+        // Small delay between batches
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
+      console.log('Import complete. Imported:', importedCount, 'characters');
+      toast.success(`Successfully imported ${importedCount} character${importedCount > 1 ? 's' : ''}!`);
+
+      // Trigger coverage refresh to update heatmap
+      setCoverageRefreshTrigger(prev => prev + 1);
     } catch (error) {
+      console.error('Import error:', error);
+      toast.dismiss(loadingToast);
       toast.error(error instanceof Error ? error.message : "Failed to read file");
     } finally {
+      setIsImporting(false);
+      // Force UI to be responsive again
+      document.body.style.pointerEvents = 'auto';
+      const root = document.getElementById('root');
+      if (root) root.style.pointerEvents = 'auto';
+
       // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
   }, [fonts]);
-
-  // Confirm Import
-  const handleConfirmImport = useCallback(async () => {
-    if (!importData) return;
-
-    try {
-      const importedFont = importData.fontFamily;
-      let importedCount = 0;
-
-      // Process each glyph
-      for (const glyph of importData.glyphs) {
-        if (!glyph.char || !Array.isArray(glyph.strokes)) continue;
-
-        // Reconstruct strokes with spline data
-        const reconstructedStrokes: Stroke[] = glyph.strokes.map((s: any) => {
-          const splinePoints = generateCatmullRomSpline(s.dots);
-          const cumulativeDistances = getCumulativeDistances(splinePoints);
-          
-          return {
-            id: s.id,
-            dots: s.dots,
-            splinePoints,
-            cumulativeDistances,
-            order: s.order
-          };
-        });
-
-        // Save to localStorage
-        persistGlyphStrokes(importedFont, glyph.char, reconstructedStrokes);
-        importedCount++;
-      }
-
-      // Refresh coverage heatmap
-      setCoverageRefreshTrigger(prev => prev + 1);
-
-      // If imported font matches current font, reload current character's strokes if it was imported
-      if (importedFont === selectedFont) {
-        const currentCharData = importData.glyphs.find((g: any) => g.char === currentChar);
-        if (currentCharData) {
-          const reloadedStrokes = loadStrokesForGlyph(selectedFont, currentChar);
-          if (reloadedStrokes) {
-            setCharacterStrokes(prev => ({
-              ...prev,
-              [currentCharIndex]: reloadedStrokes
-            }));
-            setCurrentStroke([]);
-          }
-        }
-      }
-
-      toast.success(`Imported ${importedCount} character${importedCount > 1 ? 's' : ''} for ${importedFont}`);
-      setImportDialogOpen(false);
-      setImportData(null);
-      setConflictingChars([]);
-    } catch (error) {
-      toast.error("Failed to import strokes");
-      console.error("Import error:", error);
-    }
-  }, [importData, selectedFont, currentChar, currentCharIndex]);
-
-  // Cancel Import
-  const handleCancelImport = useCallback(() => {
-    setImportDialogOpen(false);
-    setImportData(null);
-    setConflictingChars([]);
-  }, []);
 
   // Reset character index when text changes
   const handleTextChange = useCallback((rawText: string) => {
@@ -672,7 +647,7 @@ export default function App() {
                 ))}
               </SelectContent>
             </Select>
-            
+
             {/* Export/Import Controls */}
             <div className="flex gap-2 pt-2">
               <Button
@@ -689,8 +664,9 @@ export default function App() {
                 variant="outline"
                 size="sm"
                 className="flex-1"
+                disabled={isImporting}
               >
-                Import Font
+                {isImporting ? 'Processing...' : 'Import Font'}
               </Button>
               <input
                 ref={fileInputRef}
@@ -920,48 +896,6 @@ export default function App() {
           </div>
         </div>
       </div>
-
-      {/* Import Confirmation Dialog */}
-      <AlertDialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Import Stroke Data</AlertDialogTitle>
-            <AlertDialogDescription>
-              {importData && (
-                <div className="space-y-3">
-                  <p>
-                    You are about to import <strong>{importData.glyphs?.length || 0} character(s)</strong> for font{' '}
-                    <strong>{importData.fontFamily}</strong>.
-                  </p>
-                  
-                  {conflictingChars.length > 0 && (
-                    <div className="bg-amber-50 border border-amber-200 rounded p-3">
-                      <p className="font-semibold text-amber-900 mb-2">
-                        ⚠️ The following {conflictingChars.length} character(s) will be overwritten:
-                      </p>
-                      <p className="text-sm text-amber-800 font-mono">
-                        {conflictingChars.join(', ')}
-                      </p>
-                    </div>
-                  )}
-                  
-                  <p className="text-sm text-gray-600">
-                    {conflictingChars.length > 0
-                      ? 'Existing strokes for these characters will be replaced. This action cannot be undone.'
-                      : 'New strokes will be added for these characters.'}
-                  </p>
-                </div>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCancelImport}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmImport}>
-              {conflictingChars.length > 0 ? 'Overwrite & Import' : 'Import'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

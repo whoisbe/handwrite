@@ -8,24 +8,36 @@ interface TraceStore {
     [char: string]: {
       strokes: Stroke[];
       // Metadata fields from hybrid persistence are ignored but preserved if present in JSON
-      [key: string]: any; 
+      [key: string]: any;
     };
   };
 }
 
 const isBrowser = typeof window !== "undefined";
 
+let storeCache: TraceStore | null = null;
+let lastCacheTime = 0;
+const CACHE_TTL_MS = 1000; // Cache for 1 second to handle burst reads
+
 function readStore(): TraceStore {
   if (!isBrowser) {
     return {};
   }
 
+  const now = Date.now();
+  if (storeCache && (now - lastCacheTime < CACHE_TTL_MS)) {
+    return storeCache;
+  }
+
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return {};
+      storeCache = {};
+    } else {
+      storeCache = JSON.parse(raw) as TraceStore;
     }
-    return JSON.parse(raw) as TraceStore;
+    lastCacheTime = now;
+    return storeCache;
   } catch (error) {
     console.error("Failed to read trace store", error);
     return {};
@@ -38,6 +50,10 @@ function writeStore(store: TraceStore) {
   }
 
   try {
+    // Update cache immediately
+    storeCache = store;
+    lastCacheTime = Date.now();
+
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
   } catch (error) {
     console.error("Failed to persist trace store", error);
@@ -58,27 +74,32 @@ function cloneStrokes(strokes: Stroke[]): Stroke[] {
 }
 
 export function persistGlyphStrokes(font: string, character: string, strokes: Stroke[]) {
+  console.log('persistGlyphStrokes called:', { font, character, strokeCount: strokes.length });
+
   if (!font || !character || strokes.length === 0) {
+    console.warn('persistGlyphStrokes: Skipping due to invalid params', { font, character, strokeCount: strokes.length });
     return;
   }
 
   const charKey = character;
   const store = readStore();
   const fontBucket = store[font] ?? {};
-  
+
   // Preserve existing metadata if any, or create new object
   const existingEntry = fontBucket[charKey] || {};
-  
+
   fontBucket[charKey] = {
     ...existingEntry,
     strokes: cloneStrokes(strokes),
     // Update timestamp if checking for it later
     lastModified: Date.now(),
-    isLocalEdit: true 
+    isLocalEdit: true
   };
-  
+
   store[font] = fontBucket;
+  console.log('Writing to store. Font bucket now has', Object.keys(fontBucket).length, 'characters');
   writeStore(store);
+  console.log('persistGlyphStrokes complete for', character);
 }
 
 export function loadStrokesForText(text: string, font: string): Record<number, Stroke[]> {
@@ -125,9 +146,9 @@ export function getFontCoverage(font: string): Record<string, boolean> {
   try {
     const store = readStore();
     const fontBucket = store[font];
-    
+
     const coverage: Record<string, boolean> = {};
-    
+
     if (!fontBucket) return coverage;
 
     // Check all keys in the bucket
@@ -136,7 +157,7 @@ export function getFontCoverage(font: string): Record<string, boolean> {
         coverage[char] = true;
       }
     });
-    
+
     return coverage;
   } catch (error) {
     console.error("Failed to get font coverage", error);
@@ -154,20 +175,20 @@ export function getAllStrokesForFont(font: string): Record<string, Stroke[]> {
 
   const store = readStore();
   const fontBucket = store[font];
-  
+
   if (!fontBucket) {
     return {};
   }
 
   const result: Record<string, Stroke[]> = {};
-  
+
   Object.keys(fontBucket).forEach(char => {
     const entry = fontBucket[char];
     if (entry?.strokes?.length) {
       result[char] = cloneStrokes(entry.strokes);
     }
   });
-  
+
   return result;
 }
 
@@ -190,21 +211,32 @@ export function downloadJSON(data: any, filename: string) {
 }
 
 /**
- * Reads and parses JSON file from user upload
+ * Reads and parses JSON file from user upload using a Web Worker
  * Returns a promise that resolves with parsed JSON data
  */
 export function uploadJSON(file: File): Promise<any> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
+    // Initialize worker
+    const worker = new Worker(new URL('../workers/json.worker.ts', import.meta.url), {
+      type: 'module'
+    });
+
+    worker.onmessage = (e) => {
+      const { data, error } = e.data;
+      if (error) {
+        reject(new Error(error));
+      } else {
         resolve(data);
-      } catch (error) {
-        reject(new Error('Invalid JSON file'));
       }
+      worker.terminate();
     };
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsText(file);
+
+    worker.onerror = (e) => {
+      reject(new Error('Worker error: ' + e.message));
+      worker.terminate();
+    };
+
+    // Send file to worker
+    worker.postMessage(file);
   });
 }
