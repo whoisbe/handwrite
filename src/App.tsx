@@ -533,7 +533,7 @@ export default function App() {
           });
 
           // Save to storage
-          await hybridPersistence.saveStrokes(importedFont, glyph.char, reconstructedStrokes);
+          persistGlyphStrokes(importedFont, glyph.char, reconstructedStrokes);
           importedCount++;
         }
 
