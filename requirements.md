@@ -28,7 +28,7 @@ Build an app that produces **realistic handwriting-style animation** for text re
 * Support initial font set: **Gloria Hallelujah**, possibly **Caveat**.
 * Initial character support: **A, G, E, N, T (uppercase)**.
 
-### 3.2 Stroke Path Definition (Hybrid / Dot-Based)
+### 3.2 Stroke Path Definition (Local Persistence)
 
 * Allow user (power user) to place **ordered dots** on glyphs.
 * Dots represent intended writing direction and approximate stroke flow.
@@ -39,7 +39,7 @@ Build an app that produces **realistic handwriting-style animation** for text re
   * Add/remove/reorder dots.
   * Add/remove strokes.
   * Change stroke start and direction.
-* Store stroke paths as metadata for (font, character).
+* Store stroke paths locally (localStorage/JSON export).
 
 ### 3.3 Auto Path Assistance (Rule-Based)
 

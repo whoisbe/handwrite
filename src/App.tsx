@@ -22,14 +22,14 @@ import AnimationPlayerCanvas from "./components/AnimationPlayerCanvas";
 import FontCoverageHeatmap from "./components/FontCoverageHeatmap";
 import { Stroke } from "./types/stroke";
 import { Point, generateCatmullRomSpline, getCumulativeDistances } from "./utils/spline";
-import { downloadJSON, uploadJSON } from "./utils/persistence";
-import {
-  saveGlyphStrokesLocal,
-  fetchAndHydrateStrokes,
-  loadGlyphStrokesWithMetadata,
+import { 
+  downloadJSON, 
+  uploadJSON,
+  persistGlyphStrokes,
+  loadStrokesForGlyph,
   getFontCoverage,
   getAllStrokesForFont
-} from "./lib/hybridPersistence";
+} from "./utils/persistence";
 
 // Canvas control button icons
 function UndoIcon() {
@@ -193,15 +193,13 @@ export default function App() {
     }
 
     const chars = Array.from(text);
-    const results = await Promise.all(
-      chars.map(async (char, index) => {
+    const results = chars.map((char, index) => {
         if (characterStrokesRef.current[index]?.length) {
           return null;
         }
-        const persisted = await fetchAndHydrateStrokes(fontName, char);
+        const persisted = loadStrokesForGlyph(fontName, char);
         return persisted?.length ? { index, strokes: persisted } : null;
-      })
-    );
+      });
 
     setCharacterStrokes(prev => {
       let mutated = false;
@@ -326,35 +324,9 @@ export default function App() {
     glyphEntries.forEach(([charIndex, charStrokes]) => {
       const glyphChar = inputText[parseInt(charIndex, 10)];
       if (glyphChar && charStrokes?.length) {
-        // Check if this character was locally edited by comparing with existing data
-        const existing = loadGlyphStrokesWithMetadata(selectedFont, glyphChar);
-
-        // If existing data exists and isLocalEdit is false (from Supabase), check if strokes match
-        let isLocalEdit = true; // Default to local edit (user created/modified)
-
-        if (existing && existing.metadata?.isLocalEdit === false) {
-          // Compare strokes to see if they match (simple comparison by stroke count and IDs)
-          const existingStrokeIds = existing.strokes.map(s => s.id).sort().join(',');
-          const newStrokeIds = charStrokes.map(s => s.id).sort().join(',');
-          const existingStrokeCount = existing.strokes.length;
-          const newStrokeCount = charStrokes.length;
-
-          // If stroke IDs and count match, it's likely the same (used as-is)
-          if (existingStrokeIds === newStrokeIds && existingStrokeCount === newStrokeCount) {
-            isLocalEdit = false; // Used as-is from Supabase
-          }
-        }
-
-        // Save with isLocalEdit flag
-        const success = saveGlyphStrokesLocal(selectedFont, glyphChar, charStrokes, {
-          isLocalEdit: isLocalEdit
-        });
-
-        if (!success) {
-          localSaveSuccess = false;
-        } else if (isLocalEdit) {
-          locallyEditedChars.push(glyphChar);
-        }
+        // Save locally
+        persistGlyphStrokes(selectedFont, glyphChar, charStrokes);
+        locallyEditedChars.push(glyphChar);
       }
     });
 
@@ -578,11 +550,8 @@ export default function App() {
         });
 
         // Save to localStorage
-        const success = saveGlyphStrokesLocal(importedFont, glyph.char, reconstructedStrokes, {
-          isLocalEdit: false // Mark as imported, not user-created
-        });
-
-        if (success) importedCount++;
+        persistGlyphStrokes(importedFont, glyph.char, reconstructedStrokes);
+        importedCount++;
       }
 
       // Refresh coverage heatmap
@@ -592,7 +561,7 @@ export default function App() {
       if (importedFont === selectedFont) {
         const currentCharData = importData.glyphs.find((g: any) => g.char === currentChar);
         if (currentCharData) {
-          const reloadedStrokes = await fetchAndHydrateStrokes(selectedFont, currentChar);
+          const reloadedStrokes = loadStrokesForGlyph(selectedFont, currentChar);
           if (reloadedStrokes) {
             setCharacterStrokes(prev => ({
               ...prev,

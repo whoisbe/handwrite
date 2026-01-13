@@ -2,9 +2,14 @@ import { Stroke } from "../types/stroke";
 
 const STORAGE_KEY = "handwrite-traces-v1";
 
+// Compatible with previous hybridPersistence structure
 interface TraceStore {
   [font: string]: {
-    [char: string]: Stroke[];
+    [char: string]: {
+      strokes: Stroke[];
+      // Metadata fields from hybrid persistence are ignored but preserved if present in JSON
+      [key: string]: any; 
+    };
   };
 }
 
@@ -60,7 +65,18 @@ export function persistGlyphStrokes(font: string, character: string, strokes: St
   const charKey = character;
   const store = readStore();
   const fontBucket = store[font] ?? {};
-  fontBucket[charKey] = cloneStrokes(strokes);
+  
+  // Preserve existing metadata if any, or create new object
+  const existingEntry = fontBucket[charKey] || {};
+  
+  fontBucket[charKey] = {
+    ...existingEntry,
+    strokes: cloneStrokes(strokes),
+    // Update timestamp if checking for it later
+    lastModified: Date.now(),
+    isLocalEdit: true 
+  };
+  
   store[font] = fontBucket;
   writeStore(store);
 }
@@ -80,8 +96,8 @@ export function loadStrokesForText(text: string, font: string): Record<number, S
   Array.from(text).forEach((char, index) => {
     const charKey = char;
     const stored = fontBucket[charKey];
-    if (stored?.length) {
-      hydrated[index] = cloneStrokes(stored);
+    if (stored?.strokes?.length) {
+      hydrated[index] = cloneStrokes(stored.strokes);
     }
   });
 
@@ -96,11 +112,63 @@ export function loadStrokesForGlyph(font: string, character: string): Stroke[] |
   const store = readStore();
   const charKey = character;
   const stored = store[font]?.[charKey];
-  if (!stored?.length) {
+  if (!stored?.strokes?.length) {
     return undefined;
   }
 
-  return cloneStrokes(stored);
+  return cloneStrokes(stored.strokes);
+}
+
+export function getFontCoverage(font: string): Record<string, boolean> {
+  if (!font) return {};
+
+  try {
+    const store = readStore();
+    const fontBucket = store[font];
+    
+    const coverage: Record<string, boolean> = {};
+    
+    if (!fontBucket) return coverage;
+
+    // Check all keys in the bucket
+    Object.keys(fontBucket).forEach(char => {
+      if (fontBucket[char]?.strokes?.length) {
+        coverage[char] = true;
+      }
+    });
+    
+    return coverage;
+  } catch (error) {
+    console.error("Failed to get font coverage", error);
+    return {};
+  }
+}
+
+/**
+ * Gets all characters with strokes for a given font
+ */
+export function getAllStrokesForFont(font: string): Record<string, Stroke[]> {
+  if (!font) {
+    return {};
+  }
+
+  const store = readStore();
+  const fontBucket = store[font];
+  
+  if (!fontBucket) {
+    return {};
+  }
+
+  const result: Record<string, Stroke[]> = {};
+  
+  Object.keys(fontBucket).forEach(char => {
+    const entry = fontBucket[char];
+    if (entry?.strokes?.length) {
+      result[char] = cloneStrokes(entry.strokes);
+    }
+  });
+  
+  return result;
 }
 
 // File download/upload utilities for export/import functionality
@@ -139,31 +207,4 @@ export function uploadJSON(file: File): Promise<any> {
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsText(file);
   });
-}
-
-/**
- * Gets all characters with strokes for a given font
- */
-export function getAllStrokesForFont(font: string): Record<string, Stroke[]> {
-  if (!font) {
-    return {};
-  }
-
-  const store = readStore();
-  const fontBucket = store[font];
-  
-  if (!fontBucket) {
-    return {};
-  }
-
-  const result: Record<string, Stroke[]> = {};
-  
-  Object.keys(fontBucket).forEach(char => {
-    const strokes = fontBucket[char];
-    if (strokes?.length) {
-      result[char] = cloneStrokes(strokes);
-    }
-  });
-  
-  return result;
 }
