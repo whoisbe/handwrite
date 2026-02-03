@@ -1,11 +1,11 @@
-# Handwrite
+# Handwrite (Svelte 5 Port)
 
-A React + TypeScript application for creating realistic handwriting-style text animations. Trace letter paths with dots, generate smooth splines, and animate text reveal along those paths with natural timing and easing.
+A Svelte 5 + Tailwind v4 application for creating realistic handwriting-style text animations. Trace letter paths with dots, generate smooth splines, and animate text reveal along those paths with natural timing and easing.
 
-![Handwrite](https://img.shields.io/badge/React-18.3.1-blue)
+![Svelte 5](https://img.shields.io/badge/Svelte-5.0-orange)
+![TailwindCSS v4](https://img.shields.io/badge/TailwindCSS-v4-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
-![Vite](https://img.shields.io/badge/Vite-6.5.5-646CFF)
-
+![Vite](https://img.shields.io/badge/Vite-6.x-646CFF)
 
 ## 🎯 Overview
 
@@ -61,6 +61,7 @@ Currently supports 6 handwriting fonts:
    ```bash
    git clone https://github.com/whoisbe/handwrite.git
    cd handwrite
+   git checkout refactor/svelte-5
    ```
 
 2. **Install dependencies**
@@ -75,7 +76,7 @@ Currently supports 6 handwriting fonts:
 
 4. **Open your browser**
    
-   Navigate to `http://localhost:5173` (or the port shown in your terminal)
+   Navigate to `http://localhost:5173`
 
 ### Building for Production
 
@@ -104,10 +105,10 @@ The built files will be in the `build/` directory.
 ### Controls
 
 - **↶ Undo**: Remove the last dot or last completed stroke
-- **⊗ Clear**: Reset all strokes for the current character
-- **▶| Step Forward**: Complete current stroke and move to next character
-- **✓ Check**: Save all strokes locally
-- **▶ Play**: Start/stop animation playback
+- **Eraser**: Reset all strokes for the current character
+- **Skip Forward**: Complete current stroke and move to next character
+- **Check**: Save all strokes locally
+- **Play**: Start/stop animation playback
 - **Speed Slider**: Adjust animation speed (1x to 4x)
 
 ### Navigation
@@ -121,9 +122,9 @@ The built files will be in the `build/` directory.
 
 ### Core Components
 
-- **`StrokeEditorCanvas.tsx`**: Interactive canvas for dot placement and stroke editing
-- **`AnimationPlayerCanvas.tsx`**: Canvas for animation playback with mask-based reveal
-- **`App.tsx`**: Main application with state management and UI controls
+- **`StrokeEditorCanvas.svelte`**: Interactive canvas for dot placement and stroke editing
+- **`AnimationPlayerCanvas.svelte`**: Canvas for animation playback with mask-based reveal
+- **`+page.svelte`**: Main application with state management and UI controls
 
 ### Key Utilities
 
@@ -131,32 +132,29 @@ The built files will be in the `build/` directory.
 - **`easing.ts`**: Timing functions for natural animation motion
 - **`layout.ts`**: Character positioning and layout calculations
 - **`fontLoader.ts`**: Font loading utilities with proper async handling
-
-### Data Layer
-
-### Data Layer
-
-- **`hybridPersistence.ts`**: Local storage wrapper (tracesRepository and supabaseClient removed in local-only version)
-- **`deviceId.ts`**: Unique device identification
+- **`persistence.ts`**: Local storage wrapper
 
 ### Project Structure
 
 ```
 src/
-├── components/
-│   ├── StrokeEditorCanvas.tsx    # Left panel: stroke editor
-│   ├── AnimationPlayerCanvas.tsx  # Right panel: animation player
-│   └── ui/                        # Reusable UI components
 ├── lib/
-│   ├── hybridPersistence.ts      # Storage layer
-├── utils/
-│   ├── spline.ts                 # Spline algorithms
-│   ├── easing.ts                 # Animation easing
-│   ├── layout.ts                 # Character layout
-│   └── fontLoader.ts             # Font utilities
-├── types/
-│   └── stroke.ts                 # TypeScript definitions
-└── App.tsx                        # Main application
+│   ├── components/
+│   │   ├── StrokeEditorCanvas.svelte    # Left panel: stroke editor
+│   │   ├── AnimationPlayerCanvas.svelte  # Right panel: animation player
+│   │   ├── FontCoverageHeatmap.svelte    # Font coverage visualization
+│   │   └── ui/                           # Reusable UI components
+│   ├── utils/
+│   │   ├── spline.ts                 # Spline algorithms
+│   │   ├── easing.ts                 # Animation easing
+│   │   ├── layout.ts                 # Character layout
+│   │   └── fontLoader.ts             # Font utilities
+│   ├── types/
+│   │   └── stroke.ts                 # TypeScript definitions
+│   └── workers/
+│       └── json.worker.ts            # Web worker for file parsing
+└── routes/
+    └── +page.svelte                  # Main application
 ```
 
 ## 🔧 Technical Details
@@ -178,33 +176,6 @@ src/
 - Responsive scaling for different display sizes
 - Proper device pixel ratio handling for high-DPI displays
 
-### Data Models
-
-```typescript
-interface Stroke {
-  id: string;
-  dots: Point[];                    // User-placed control points
-  splinePoints: Point[];            // Generated smooth curve points
-  cumulativeDistances: number[];    // Arc-length parameterization
-  order: number;                    // Stroke sequence order
-}
-```
-
-## 🧪 Development
-
-### Debug Features
-
-The app includes a debug section with:
-
-- localStorage inspection
-- Saved data JSON export
-
-### Branch Structure
-
-- `main`: Stable production branch
-- `feature/zoom-functionality`: Zoom feature exploration (stashed)
-- `feature/font-size-and-animation-fix`: Font size and animation scaling experiments (stashed)
-
 ## 📝 License
 
 This project is private and not licensed for public use.
@@ -213,19 +184,4 @@ This project is private and not licensed for public use.
 
 - Original Figma design: [Font Picker and Canvas](https://www.figma.com/design/SVFM4J5Pfe7RiKYUZkBKc0/Font-Picker-and-Canvas)
 - Fonts provided by Google Fonts
-- Built with React, TypeScript, and Vite
-
-## 🔮 Future Enhancements
-
-Potential features for future development:
-- Video/GIF export
-- Additional font support
-- Stroke path auto-suggestion
-- More easing functions
-- Stroke pressure variation
-- Customizable brush sizes
-- Export to various formats
-
----
-
-**Made with ❤️ for creating beautiful handwriting animations**
+- Built with Svelte 5, Tailwind CSS v4, and Vite
