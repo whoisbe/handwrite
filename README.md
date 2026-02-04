@@ -15,7 +15,6 @@ Handwrite enables users to create handwriting-style animations by:
 2. **Tracing letter paths** by placing dots along the desired writing trajectory
 3. **Auto-generating smooth splines** from those dots using Catmull-Rom interpolation
 4. **Previewing animations** that reveal text progressively along the stroke paths
-5. **Saving** stroke data locally to your browser
 
 Perfect for creating engaging text animations, educational content, or artistic handwriting effects.
 
@@ -28,7 +27,6 @@ Perfect for creating engaging text animations, educational content, or artistic 
 - **Mask-based Animation**: Text reveals progressively following your stroke paths with brush-like effects
 - **Full Word Animation**: Animate entire words with proper character spacing and sequencing
 - **Speed Control**: Adjustable animation speed multiplier (1x to 4x)
-- **Local Persistence**: Instant local saves to localStorage
 
 ### Font Support
 Currently supports 6 handwriting fonts:
@@ -44,11 +42,6 @@ Currently supports 6 handwriting fonts:
 - **Configurable Timing**: Adjustable stroke duration, gaps between strokes, and character delays
 - **Sequential Playback**: Strokes animate in order with natural pauses
 - **Visual Feedback**: Numbered dots, color-coded strokes, and hover previews
-
-### Data Persistence
-- **Local Storage**: All data is saved directly to your browser's localStorage
-- **Privacy Focused**: No data leaves your device
-- **Instant Save**: Strokes are saved immediately upon checking
 
 ## 🚀 Getting Started
 
@@ -107,7 +100,7 @@ The built files will be in the `build/` directory.
 - **↶ Undo**: Remove the last dot or last completed stroke
 - **Eraser**: Reset all strokes for the current character
 - **Skip Forward**: Complete current stroke and move to next character
-- **Check**: Save all strokes locally
+- **Check**: Finish recording strokes (in-memory)
 - **Play**: Start/stop animation playback
 - **Speed Slider**: Adjust animation speed (1x to 4x)
 
@@ -132,7 +125,6 @@ The built files will be in the `build/` directory.
 - **`easing.ts`**: Timing functions for natural animation motion
 - **`layout.ts`**: Character positioning and layout calculations
 - **`fontLoader.ts`**: Font loading utilities with proper async handling
-- **`persistence.ts`**: Local storage wrapper
 
 ### Project Structure
 
@@ -142,17 +134,14 @@ src/
 │   ├── components/
 │   │   ├── StrokeEditorCanvas.svelte    # Left panel: stroke editor
 │   │   ├── AnimationPlayerCanvas.svelte  # Right panel: animation player
-│   │   ├── FontCoverageHeatmap.svelte    # Font coverage visualization
 │   │   └── ui/                           # Reusable UI components
 │   ├── utils/
 │   │   ├── spline.ts                 # Spline algorithms
 │   │   ├── easing.ts                 # Animation easing
 │   │   ├── layout.ts                 # Character layout
 │   │   └── fontLoader.ts             # Font utilities
-│   ├── types/
+│   └── types/
 │   │   └── stroke.ts                 # TypeScript definitions
-│   └── workers/
-│       └── json.worker.ts            # Web worker for file parsing
 └── routes/
     └── +page.svelte                  # Main application
 ```
