@@ -280,6 +280,21 @@
   }
 
   $effect(() => {
+    // Explicitly depend on state for Svelte 5 reactivity
+    const _deps = {
+      text,
+      fontFamily,
+      strokes,
+      characterStrokes,
+      isPlaying,
+      currentTime,
+      totalDuration,
+      timelineStrokes,
+      invertColors,
+      textColor,
+      width,
+      height
+    };
     render();
   });
 
