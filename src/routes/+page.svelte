@@ -8,10 +8,12 @@
   import CustomSlider from '$lib/components/ui/CustomSlider.svelte';
   import StrokeEditorCanvas from '$lib/components/StrokeEditorCanvas.svelte';
   import AnimationPlayerCanvas from '$lib/components/AnimationPlayerCanvas.svelte';
+  import FontCoverageHeatmap from '$lib/components/FontCoverageHeatmap.svelte';
   
   import type { Stroke } from '$lib/types/stroke';
   import { generateCatmullRomSpline, getCumulativeDistances, type Point } from '$lib/utils/spline';
 
+  // --- STATE ---
   let selectedFont = $state("Gloria Hallelujah");
   let inputText = $state("A");
   let currentCharIndex = $state(0);
@@ -22,6 +24,10 @@
   let invertColors = $state(false);
   let textColor = $state<string | null>(null);
   
+  // In-memory "library" of known strokes for fonts
+  // font -> char -> strokes[]
+  let fontLibrary = $state<Record<string, Record<string, Stroke[]>>>({});
+
   let colorPickerInput: HTMLInputElement;
 
   const fonts = [
@@ -33,8 +39,23 @@
     "Nanum Brush Script"
   ];
 
+  // --- DERIVED ---
   let currentChar = $derived(inputText[currentCharIndex] || "");
   let strokes = $derived(characterStrokes[currentCharIndex] || []);
+  
+  let fontCoverage = $derived.by(() => {
+    // Generate coverage map from library for current font
+    const lib = fontLibrary[selectedFont] || {};
+    const coverage: Record<string, boolean> = {};
+    Object.keys(lib).forEach(char => {
+      if (lib[char] && lib[char].length > 0) {
+        coverage[char] = true;
+      }
+    });
+    return coverage;
+  });
+
+  // --- ACTIONS ---
 
   function handleAddDot(point: Point) {
     currentStroke = [...currentStroke, point];
@@ -56,12 +77,30 @@
       order: strokes.length
     };
 
+    // Update session strokes
     characterStrokes = {
       ...characterStrokes,
       [currentCharIndex]: [...(characterStrokes[currentCharIndex] || []), newStroke]
     };
     currentStroke = [];
+    
+    // Save to library immediately?
+    // Let's save on completion to keep heatmap live
+    saveCharacterToLibrary(currentChar, [...(characterStrokes[currentCharIndex] || [])]);
+
     return newStroke;
+  }
+
+  function saveCharacterToLibrary(char: string, strokesToSave: Stroke[]) {
+    if (!char || strokesToSave.length === 0) return;
+    
+    const fontLib = fontLibrary[selectedFont] || {};
+    fontLib[char] = strokesToSave;
+    
+    fontLibrary = {
+      ...fontLibrary,
+      [selectedFont]: fontLib
+    };
   }
 
   function handleDotClick(dotIndex: number) {
@@ -82,6 +121,9 @@
         [currentCharIndex]: newStrokes
       };
       
+      // Update library (remove undone stroke)
+      saveCharacterToLibrary(currentChar, newStrokes);
+      
       currentStroke = lastStroke.dots;
     }
   }
@@ -92,6 +134,8 @@
       ...characterStrokes,
       [currentCharIndex]: []
     };
+    // Clear from library too? Yes, if "Eraser" implies clearing the character definition
+    saveCharacterToLibrary(currentChar, []);
     isPlaying = false;
   }
 
@@ -112,6 +156,15 @@
       completeCurrentStroke();
     }
     
+    // Explicit save trigger (already handled in completeCurrentStroke/handleStep, but good for UX feedback)
+    // Also save ALL characters in current text to library just in case
+    Object.entries(characterStrokes).forEach(([idx, strokes]) => {
+        const char = inputText[parseInt(idx)];
+        if (char && strokes.length > 0) {
+            saveCharacterToLibrary(char, strokes);
+        }
+    });
+
     currentStroke = [];
     isPlaying = false;
     toast.success(`Strokes recorded for "${currentChar}"`);
@@ -129,10 +182,40 @@
     isPlaying = false;
   }
 
+  // --- TEXT / FONT HANDLING ---
+
+  // Try to hydrate strokes from library when text changes
+  function hydrateStrokes(text: string) {
+    const lib = fontLibrary[selectedFont] || {};
+    const next: Record<number, Stroke[]> = {};
+    
+    Array.from(text).forEach((char, index) => {
+        // If we already have strokes for this index (e.g. from typing), keep them?
+        // Actually, usually we want the library version if available.
+        // But if user just typed, we want to respect what they just did?
+        // Let's prefer library if it exists, unless we are preserving existing session state.
+        
+        if (characterStrokes[index]?.length) {
+            // Keep existing session strokes if they match the char
+            // (Handled in handleTextChange logic mostly)
+            next[index] = characterStrokes[index];
+        } else if (lib[char]?.length) {
+            // Hydrate from library
+            next[index] = [...lib[char]]; // Clone array
+        }
+    });
+    
+    // If we found new stuff, update
+    // Merging `next` with `characterStrokes` logic happens in handleTextChange
+    return next;
+  }
+
   function handleTextChange(rawText: string) {
     const sanitizedText = rawText;
     const previousText = inputText;
     inputText = sanitizedText;
+    
+    // Reset editor state
     currentCharIndex = 0;
     currentStroke = [];
     isPlaying = false;
@@ -143,15 +226,63 @@
     }
 
     const next: Record<number, Stroke[]> = {};
+    const lib = fontLibrary[selectedFont] || {};
+
     for (let i = 0; i < sanitizedText.length; i++) {
       const prevChar = previousText[i];
       const nextChar = sanitizedText[i];
+      
+      // 1. Keep existing strokes if char didn't change at this position
       if (characterStrokes[i]?.length && prevChar === nextChar) {
         next[i] = characterStrokes[i];
+      } 
+      // 2. Else, try to load from library
+      else if (lib[nextChar]?.length) {
+        next[i] = [...lib[nextChar]];
       }
     }
     characterStrokes = next;
   }
+
+  function handleCharacterSelect(char: string) {
+      // If user clicks a char in heatmap, append it to text? 
+      // Or if it's already in text, jump to it?
+      // The original behavior:
+      // "If existingIndex !== -1 ... else append"
+      
+      const existingIndex = inputText.indexOf(char);
+      if (existingIndex !== -1) {
+          currentCharIndex = existingIndex;
+      } else {
+          if (inputText.length < 12) {
+              const newText = inputText + char;
+              handleTextChange(newText);
+              currentCharIndex = newText.length - 1;
+          } else {
+              toast.error("Text limit reached");
+          }
+      }
+  }
+
+  // Watch font change to re-hydrate from that font's library
+  $effect(() => {
+      const _ = selectedFont;
+      // Re-run hydration logic for current text against new font
+      if (inputText) {
+          handleTextChange(inputText);
+      }
+  });
+
+  onMount(() => {
+      // Initialize library with empty objects for fonts
+      const initLib: any = {};
+      fonts.forEach(f => initLib[f] = {});
+      fontLibrary = initLib;
+      
+      // If we had persistence, we'd load here. 
+      // Now we start fresh.
+  });
+
 </script>
 
 <div class="bg-white min-h-screen p-6">
@@ -165,8 +296,11 @@
 
   <!-- Input Controls -->
   <div class="mb-8 space-y-6" style="max-width: 100%;">
-    <!-- Font Selector -->
+    
+    <!-- Font Selector + Heatmap Row -->
     <div style="display: flex; flex-direction: row; gap: 16px; align-items: flex-start; flex-wrap: wrap;">
+      
+      <!-- Left Column: Font Select + Export (future) -->
       <div class="space-y-2" style="flex: 0 0 auto; min-width: 240px;">
         <label for="font-select" class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Font</label>
         <CustomSelect
@@ -175,6 +309,16 @@
           options={fonts.map(f => ({ label: f, value: f }))}
           placeholder="Select a font"
           className="w-full"
+        />
+      </div>
+
+      <!-- Right Column: Heatmap -->
+      <div style="flex: 0 0 auto; min-width: 800px;">
+        <FontCoverageHeatmap
+          fontFamily={selectedFont}
+          coverage={fontCoverage}
+          onCharacterClick={handleCharacterSelect}
+          currentChar={currentChar}
         />
       </div>
     </div>
