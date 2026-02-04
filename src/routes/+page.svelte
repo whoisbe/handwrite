@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { Toaster, toast } from 'sonner';
+  import Toaster from '$lib/components/ui/Toaster.svelte';
+  import { toast } from '$lib/utils/toast';
   import { Undo, Eraser, StepForward, Check, Play, Pause, Moon, Palette, Sun } from 'lucide-svelte';
   
   import CustomSelect from '$lib/components/ui/CustomSelect.svelte';
