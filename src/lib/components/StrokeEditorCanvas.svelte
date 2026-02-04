@@ -187,9 +187,17 @@
 
   $effect(() => {
     // Re-run draw when dependencies change
-    // Svelte 5 tracks dependencies automatically
-    // dependencies: text, fontFamily, strokes, currentStroke, hoveredPoint, hoveredDotIndex, width, height
-    // But we need to make sure we call draw inside effect
+    // Explicitly track dependencies before the async gap in draw()
+    const _deps = {
+      text,
+      fontFamily,
+      strokes,
+      currentStroke,
+      hoveredPoint,
+      hoveredDotIndex,
+      width,
+      height
+    };
     draw();
   });
 
