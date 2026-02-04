@@ -183,7 +183,7 @@
     <div class="space-y-2">
       <div class="flex justify-between items-center">
         <label for="text-input" class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Text</label>
-        <span class="text-xs text-gray-500">{inputText.length}/6</span>
+        <span class="text-xs text-gray-500">{inputText.length}/12</span>
       </div>
       <input
         id="text-input"
@@ -191,12 +191,12 @@
         value={inputText}
         oninput={(e) => {
           const target = e.target as HTMLInputElement;
-          const newValue = target.value.slice(0, 6);
+          const newValue = target.value.slice(0, 12);
           handleTextChange(newValue);
         }}
         placeholder="Enter text to animate"
         class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-        maxlength={6}
+        maxlength={12}
       />
     </div>
 
